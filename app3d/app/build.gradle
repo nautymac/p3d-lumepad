@@ -1,0 +1,37 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.nauty.p3d'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.nauty.p3d"
+        minSdk 21
+        targetSdk 28          // 기기가 API 26 — 레거시 저장소 접근 유지
+        versionCode 1
+        versionName "1.0"
+        ndk { abiFilters 'arm64-v8a' }   // 기기가 arm64. libVLC 가 ABI 당 ~30MB 라 하나만 담는다
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    packaging {
+        jniLibs { useLegacyPackaging true }
+    }
+
+    buildTypes {
+        debug   { minifyEnabled false }
+        release { minifyEnabled false }
+    }
+    lint { abortOnError false }
+}
+
+dependencies {
+    implementation 'androidx.media3:media3-exoplayer:1.3.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.3.1'
+    implementation 'androidx.media3:media3-exoplayer-dash:1.3.1'
+    implementation 'org.videolan.android:libvlc-all:3.6.0'
+}

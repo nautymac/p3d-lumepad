@@ -1,0 +1,21 @@
+# 빌드 산출물 (재생성 가능, 수백 MB)
+app3d/build/
+app3d/app/build/
+app3d/.gradle/
+app3d/local.properties
+.gradle/
+
+# 서명 키 — 절대 커밋 금지
+*.jks
+*.keystore
+keystore.properties
+
+# 테스트 스크린샷. 영화 화면(스파이더맨/Edge of Tomorrow)이 들어있고 재생성 가능하다.
+/*.png
+
+# 디컴파일 소스. apks/ 에서 jadx 로 언제든 다시 만들 수 있어 중복이라 제외한다.
+#   java -cp jadx-gui-*-all.jar jadx.cli.JadxCLI -d src/3DPlayer apks/3DPlayer_1114.apk
+/src/
+
+# 로컬 산출물
+*.class
