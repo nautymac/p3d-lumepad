@@ -48,7 +48,7 @@ public class Stereo3DView extends GLSurfaceView {
     private volatile int          videoH       = 9;
 
     /** 자막을 화면 앞쪽으로 띄우는 시차(화면 px). 클수록 앞으로 나온다. */
-    private volatile float subtitleDepth = 14f;
+    private volatile float subtitleDepth = 0f;
 
     /** 자막의 화면 하단으로부터의 위치 (높이 비율). 클수록 위로 올라온다. */
     private volatile float subtitleY = 0.04f;

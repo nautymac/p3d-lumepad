@@ -57,6 +57,7 @@ public class InterlaceRenderer {
         // 마스크 갱신: update() 는 "현재 바인드된 GL_TEXTURE_2D" 에 써 넣는다.
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, maskTex);
+        // (x, y) 는 무시된다 — 측정으로 확인. FINDINGS.md 의 "아이트래킹" 절 참고.
         Holography.update(0, 0);
         GLES20.glUniform1i(sampler1, 1);
 

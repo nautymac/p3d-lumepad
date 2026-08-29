@@ -74,7 +74,7 @@ public class PlayerActivity extends Activity
 
     // 설정 패널
     private View settingsPanel;
-    private Button btnSource, btnOutput, btnSwap, btnEngine, btnSubtitle;
+    private Button btnSource, btnOutput, btnSwap, btnSubtitle;
     private TextView statusText, subtitleName;
 
     // 자막
@@ -178,7 +178,7 @@ public class PlayerActivity extends Activity
         android.content.SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
         subtitleScale = Math.max(0.4f, sp.getInt(KEY_SUB_SCALE, 100) / 100f);
         glView.setSubtitleY(sp.getInt(KEY_SUB_Y, 4) / 100f);
-        glView.setSubtitleDepth(sp.getInt(KEY_SUB_DEPTH, 14));
+        glView.setSubtitleDepth(sp.getInt(KEY_SUB_DEPTH, 0));
     }
 
     private int dp(int v) {
@@ -366,17 +366,18 @@ public class PlayerActivity extends Activity
         }));
 
         p.addView(label("자막 깊이 (앞으로 튀어나옴)"));
-        p.addView(slider(60, sp.getInt(KEY_SUB_DEPTH, 14), new OnValue() {
+        p.addView(slider(60, sp.getInt(KEY_SUB_DEPTH, 0), new OnValue() {
             @Override public void set(int v) {
                 glView.setSubtitleDepth(v);
                 sp.edit().putInt(KEY_SUB_DEPTH, v).apply();
             }
         }));
 
-        p.addView(header("재생 엔진"));
-        btnEngine = panelButton(p, "엔진", new View.OnClickListener() {
-            @Override public void onClick(View v) { switchEngine(); }
-        });
+        // 엔진 선택 버튼은 두지 않는다.
+        // 이 기기에는 DTS/AC3 디코더가 없어서 ExoPlayer 로는 3D 영화 대부분이 무음이다.
+        // libVLC 가 자체 디코더를 들고 있으므로 그쪽만 쓰고, ExoPlayer 는
+        // libVLC 초기화가 실패했을 때의 폴백으로만 남겨둔다 (startPlayback 참고).
+        // 디버깅용으로 인텐트 엑스트라 --es engine EXO|VLC 는 계속 동작한다.
 
         scroll.addView(p);
         return scroll;
@@ -554,7 +555,7 @@ public class PlayerActivity extends Activity
     @SuppressLint("SetTextI18n")
     private void refreshLabels() {
         btnPlay.setText(engine != null && engine.isPlaying() ? "❚❚" : "▶");
-        if (btnSource == null || btnEngine == null) return;
+        if (btnSource == null || btnSwap == null) return;   // 패널 구성 전이면 건너뛴다
 
         btnSource.setText("소스: " + glView.getSourceFormat().label);
 
@@ -566,7 +567,6 @@ public class PlayerActivity extends Activity
         }
         btnOutput.setText("출력: " + out);
         btnSwap.setText(glView.isSwapLR() ? "좌우반전 ON" : "좌우반전 OFF");
-        btnEngine.setText("엔진: " + currentKind().label);
         updateSubtitleName();
 
         // 지금 소스 포맷이 어디서 왔는지 보여준다. 수동으로 잘못 고른 상태를 알아채야 하기 때문.
@@ -640,42 +640,40 @@ public class PlayerActivity extends Activity
         }
     }
 
+    /**
+     * 시스템 바를 숨기는 것만으로는 부족하다. LAYOUT_* 플래그가 없으면 뷰가 바를 뺀
+     * 영역(2560x1456)에만 배치되고, 그러면 GL 표면도 1456 이 된다.
+     *
+     * 그런데 패널의 렌티큘러 마스크(/sdcard/3DKanKan/matrix, 2560x1600x2 바이트)는
+     * 화면 전체 높이 1600 기준으로 만들어져 있다. 1456 으로 HolographyInit 을 하면
+     * 마스크가 어긋나 화면 아래쪽에서 인터레이스가 끊기고, 그 경계가 가로줄로 보인다.
+     * (증상: 자막 두 줄 사이에 투명한 가로선)
+     *
+     * LAYOUT_HIDE_NAVIGATION 과 LAYOUT_FULLSCREEN 을 넣어 레이아웃을 바 아래까지
+     * 확장해야 GL 표면이 2560x1600 이 되어 마스크와 일치한다.
+     */
     private void hideSystemUi() {
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
     }
 
     // -------------------------------------------------------------- 엔진
 
+    /** 기본은 libVLC. ExoPlayer 는 이 기기에서 DTS/AC3 를 못 재생해 쓸모가 없다. */
     private VideoEngine.Kind currentKind() {
         if (engine != null) return engine.kind();
         String v = getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString(KEY_ENGINE, VideoEngine.Kind.EXO.name());
+                .getString(KEY_ENGINE, VideoEngine.Kind.VLC.name());
         try {
             return VideoEngine.Kind.valueOf(v);
         } catch (IllegalArgumentException e) {
-            return VideoEngine.Kind.EXO;
+            return VideoEngine.Kind.VLC;
         }
-    }
-
-    private void switchEngine() {
-        VideoEngine.Kind next = currentKind() == VideoEngine.Kind.EXO
-                ? VideoEngine.Kind.VLC : VideoEngine.Kind.EXO;
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-                .edit().putString(KEY_ENGINE, next.name()).apply();
-
-        long pos = engine == null ? 0 : engine.getPosition();
-        if (engine != null) { engine.release(); engine = null; }
-
-        startPlayback();
-        if (engine != null && pos > 0) engine.seekTo(pos);
-        lastCueText = null;
-
-        Toast.makeText(this, next.label + " 로 전환", Toast.LENGTH_SHORT).show();
-        refreshLabels();
     }
 
     @Override
@@ -693,18 +691,38 @@ public class PlayerActivity extends Activity
             engine.open(this, pendingUri, videoSurface, videoSurfaceTexture, this);
             engine.play();
         } catch (Throwable t) {
-            Toast.makeText(this, engine.kind().label + " 시작 실패 → ExoPlayer 로 대체",
+            // libVLC 가 뜨지 않으면 화면이 아예 안 나오므로 ExoPlayer 로 떨어진다.
+            // 다만 이 기기에서 ExoPlayer 는 DTS/AC3 를 못 해 무음일 수 있으니 그 사실을 알린다.
+            // 이 폴백은 저장하지 않는다 — 저장하면 다음부터도 계속 ExoPlayer 가 된다.
+            Toast.makeText(this,
+                    "libVLC 시작 실패 → ExoPlayer 로 재생합니다.\n오디오 코덱에 따라 소리가 안 날 수 있습니다.",
                     Toast.LENGTH_LONG).show();
             try { engine.release(); } catch (Throwable ignored) { }
             engine = new ExoEngine();
             engine.open(this, pendingUri, videoSurface, videoSurfaceTexture, this);
             engine.play();
-            getSharedPreferences(PREFS, MODE_PRIVATE)
-                    .edit().putString(KEY_ENGINE, VideoEngine.Kind.EXO.name()).apply();
         }
         ui.removeCallbacks(ticker);
         ui.post(ticker);
         refreshLabels();
+
+        // 디버그: --ei freezems N 이면 그 지점으로 이동해 정지시킨다.
+        // 마스크 반응을 측정하려면 매 캡처가 같은 프레임이어야 하기 때문.
+        final int freezeMs = getIntent().getIntExtra("freezems", 0);
+        if (freezeMs > 0) {
+            ui.postDelayed(new Runnable() {
+                @Override public void run() {
+                    if (engine == null) return;
+                    engine.seekTo(freezeMs);
+                    ui.postDelayed(new Runnable() {
+                        @Override public void run() {
+                            if (engine != null) engine.pause();
+                            android.util.Log.i("P3D", "디버그 정지: " + freezeMs + "ms");
+                        }
+                    }, 1500);
+                }
+            }, 2500);
+        }
     }
 
     // --------------------------------------------------- VideoEngine.Listener
