@@ -19,3 +19,6 @@ keystore.properties
 
 # 로컬 산출물
 *.class
+
+# Moonlight APK 분석용 임시 폴더 (재생성 가능, 서드파티 APK 포함)
+/ml/

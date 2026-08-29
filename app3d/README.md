@@ -211,8 +211,9 @@ paint.setStyle(FILL);   paint.setColor(WHITE); layout.draw(c);
 스테레오 판별 표본: SBS=4 TB=0 2D=0 (1920x808)     ← 약 3초 소요
 ```
 
-판별 우선순위: **저장된 사용자 선택 > 파일명 명시 토큰 > 픽셀 판별 > 2D**.
-자동 판별 결과는 저장하지 않는다 (사용자가 직접 고른 것만 저장).
+판별 우선순위: **저장된 사용자 선택 > 픽셀 판별 > (판별 실패 시) 파일명 / 2D**.
+파일명은 판별이 끝날 때까지의 임시값으로만 쓰고 결과가 나오면 덮어쓴다 — 이름은 틀리게
+붙어 있는 경우가 흔하기 때문. 자동 판별 결과는 저장하지 않는다 (사용자가 직접 고른 것만 저장).
 
 ### 인터레이스 검증 도구
 
@@ -253,3 +254,70 @@ java InterlaceCheck.java shot.png
 | Edge.of.Tomorrow...mkv (1920x1080) | SBS=4/4 → SBS_HALF | — (DTS 무음) |
 
 자막 통제 실험: 자막 유무에 따른 인터레이스 비율 `4.26 vs 4.26` — 자막은 3D 에 영향 없음.
+
+## 3DFV 오버레이 — 남의 앱을 패널 3D 로 쓰기
+
+Chrome 에서 화면 왼쪽에 뜨는 `›` 핸들이 3DFV 의 FloatView 다. 누르면
+`일반 / SBS-full / SBS-half / 상하` 와 깊이를 고를 수 있다. 이게 뜨는 조건이 갈린다.
+
+```java
+// Service3D 타이머 루프
+mIsLandscape && mInWhitelist && mIsKeyguardGone && !mIsCustomActivity   → 오버레이 표시
+```
+
+| 등록 경로 | mIsCustomActivity | 결과 |
+|---|---|---|
+| **파일 화이트리스트** | false | **오버레이 표시** — 모드·깊이 직접 선택 |
+| 브로드캐스트 (`Service3D.request`) | true | 오버레이 없이 고정 모드로 즉시 적용 |
+
+그래서 3D 컨트롤 센터는 **파일 방식**을 쓴다 (`Fv3dWhitelist`).
+
+### 화이트리스트 파일 우선순위
+
+```java
+// Service3D.getFVWhiteList()
+"/sdcard/K3DX/config/white_list2.config"     // 점 없는 파일을 먼저 찾고
+"/sdcard/K3DX/config/.white_list2.config"    // 없을 때만 벤더 파일
+```
+
+우리는 점 없는 파일에만 쓴다. 벤더 파일은 건드리지 않고, 우리 파일을 지우면 원상복구된다
+(컨트롤 센터의 `기본값 복원`).
+
+### 반영시키기 — close_self 는 반드시 재시작과 함께
+
+3DFV 는 화이트리스트를 **서비스 시작 때만** 읽는다. `close_self` 브로드캐스트로 정지시킬 수
+있지만, 그 핸들러는 `auto_start=false` 를 저장한다 — 그대로 두면 **다음 부팅에 3D 서비스가
+아예 안 뜬다.** 다행히 `Service3D.onCreate()` 가 message 2100 을 `arg1=1` 로 보내
+`auto_start` 를 true 로 되돌리므로, **정지 직후 재시작하면 안전하다.**
+
+```java
+sendBroadcast(new Intent("com.wztech.service.close_self"));
+// 1.5초 뒤
+startForegroundService(new Intent("com.wztech.service").setPackage("com.wztech.service3d"));
+```
+
+### 액티비티 이름은 실제 실행 중인 것과 맞아야 한다
+
+기기 기본 화이트리스트의 YouTube 항목이 낡아서 오버레이가 뜨지 않았다.
+
+```
+등록돼 있던 것 : com.google.android.apps.youtube.app.watchwhile.WatchWhileActivity
+SurfaceFlinger 보고: com.google.android.youtube/com.google.android.youtube.app.honeycomb.Shell$HomeActivity#0
+                                               └─ "/" 뒤 "#" 앞이 비교 키
+```
+
+YouTube 20.x 로 올라가며 패키지 경로가 `apps.youtube` → `youtube` 로 바뀐 탓이다.
+그래서 컨트롤 센터는 `PackageManager.GET_ACTIVITIES` 로 **그 앱의 모든 액티비티**를 등록한다.
+스트리밍·게임 앱은 재생 화면이 런처와 다른 액티비티라 이게 필요하다
+(예: Moonlight 은 런처가 `com.limelight.PcView`, 스트리밍은 `com.limelight.Game`).
+
+## 기기 종속성
+
+`libholography.so` 는 렌티큘러 마스크를 코드가 아니라 파일에서 읽는다.
+
+```
+/sdcard/3DKanKan/matrix     8,192,000 bytes    ← 패널별 보정값
+```
+
+기기 출고 시 Sight3D 가 만들어 둔 것이라, **이 파일이 없거나 다른 패널의 값이면 3D 가
+정렬되지 않는다.** 즉 같은 ProMa P10 에서만 동작한다.

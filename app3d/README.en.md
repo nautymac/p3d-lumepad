@@ -69,8 +69,10 @@ cd C:\Users\nauty\proma3d\app3d
 C:\Users\nauty\platform-tools\adb.exe install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-The vendor files (`libholography.so` and the `.sh` shaders) are not in this repository.
-Extract them from your own device with `tools/extract-vendor.sh` before building.
+The vendor files (`libholography.so` and the `.sh` shaders) are checked in, since this is a
+private personal repository. They were extracted from the stock apps on my own device and are
+not for redistribution — if this repo is ever made public they must be removed and pulled from
+the device at build time instead.
 
 ## Cautions
 
@@ -240,7 +242,9 @@ it separates cleanly. Low-contrast samples (black frames and the like) are disca
 stereo detection votes: SBS=4 TB=0 2D=0 (1920x808)     ← about 3 seconds
 ```
 
-Detection results are not persisted — only an explicit user choice is.
+Priority: **saved user choice > pixel detection > (if detection fails) filename / 2D**.
+The filename is only a placeholder until detection finishes, then it is overwritten — names are
+often wrong. Detection results are not persisted; only an explicit user choice is.
 
 ### Interlace verification tool
 
@@ -285,3 +289,71 @@ If 3D looks wrong, read this line first.
 
 Controlled subtitle experiment: interlace ratio with vs. without subtitles was `4.26 vs 4.26`
 — subtitles have no effect on 3D.
+
+## The 3DFV overlay — putting other apps on the 3D panel
+
+The `›` handle on the left edge in Chrome is 3DFV's FloatView. Tapping it offers
+`Normal / SBS-full / SBS-half / Top-bottom` plus a depth slider. Whether it appears depends on
+how the app was registered.
+
+```java
+// Service3D timer loop
+mIsLandscape && mInWhitelist && mIsKeyguardGone && !mIsCustomActivity   → overlay shown
+```
+
+| Registration path | mIsCustomActivity | Result |
+|---|---|---|
+| **Whitelist file** | false | **Overlay shown** — pick mode and depth yourself |
+| Broadcast (`Service3D.request`) | true | Applied immediately in a fixed mode, no overlay |
+
+So the 3D Control Center uses the **file** path (`Fv3dWhitelist`).
+
+### Whitelist file precedence
+
+```java
+// Service3D.getFVWhiteList()
+"/sdcard/K3DX/config/white_list2.config"     // tries the undotted file first
+"/sdcard/K3DX/config/.white_list2.config"    // vendor file only if that is missing
+```
+
+We only ever write the undotted file. The vendor file is left untouched, and deleting ours
+restores the stock behaviour (`Restore defaults` in the Control Center).
+
+### Applying changes — close_self must always be paired with a restart
+
+3DFV reads the whitelist **only when the service starts**. The `close_self` broadcast stops it,
+but that handler also stores `auto_start=false` — leave it there and **the 3D service will not
+start on the next boot.** Fortunately `Service3D.onCreate()` sends message 2100 with `arg1=1`,
+setting `auto_start` back to true, so **stopping and immediately restarting is safe.**
+
+```java
+sendBroadcast(new Intent("com.wztech.service.close_self"));
+// 1.5s later
+startForegroundService(new Intent("com.wztech.service").setPackage("com.wztech.service3d"));
+```
+
+### The activity name must match what is actually running
+
+The stock whitelist entry for YouTube was stale, so no overlay appeared.
+
+```
+Registered      : com.google.android.apps.youtube.app.watchwhile.WatchWhileActivity
+SurfaceFlinger  : com.google.android.youtube/com.google.android.youtube.app.honeycomb.Shell$HomeActivity#0
+                                             └─ the key is between "/" and "#"
+```
+
+YouTube 20.x moved its package path from `apps.youtube` to `youtube`. That is why the Control
+Center registers **every activity of the package** via `PackageManager.GET_ACTIVITIES`:
+streaming and game apps render in a different activity from their launcher one
+(Moonlight launches `com.limelight.PcView` but streams in `com.limelight.Game`).
+
+## Device dependency
+
+`libholography.so` does not carry the lenticular mask in code — it reads it from a file.
+
+```
+/sdcard/3DKanKan/matrix     8,192,000 bytes    ← per-panel calibration
+```
+
+Sight3D generates it at the factory. **Without it, or with another panel's values, the 3D does
+not line up** — so this only works on the same ProMa P10.

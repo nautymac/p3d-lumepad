@@ -59,6 +59,16 @@ public class Stereo3DView extends GLSurfaceView {
 
     private Callback callback;
 
+    /**
+     * libholography 는 프로세스 전역 상태다 (정적 JNI + 네이티브 전역 버퍼).
+     * 초기화 여부를 Renderer 인스턴스 필드로 추적하면, 액티비티가 재생성될 때
+     * 새 인스턴스가 "초기화 안 됨" 으로 보고 deinit 없이 HolographyInit 을 다시 부른다.
+     * 그러면 네이티브가 마스크를 전부 0 으로 읽어와 인터레이스가 사라진다
+     * (증상: 목록으로 나갔다 다른 파일을 열면 3D 가 안 됨. 앱을 완전히 죽여야 복구).
+     * 그래서 프로세스 단위로 추적한다.
+     */
+    private static boolean sHolographyInited = false;
+
     public Stereo3DView(Context c) { this(c, null); }
 
     public Stereo3DView(Context c, AttributeSet a) {
@@ -156,7 +166,6 @@ public class Stereo3DView extends GLSurfaceView {
         private SubtitleRenderer subs;
         private Fbo fbo;
         private int surfW, surfH;
-        private boolean holographyInited = false;
 
         /**
          * 도착했지만 아직 소비하지 않은 프레임 수.
@@ -198,9 +207,16 @@ public class Stereo3DView extends GLSurfaceView {
             if (fbo != null) fbo.release();
             fbo = new Fbo(w, h);
 
-            if (holographyInited) Holography.deinitHolography();
-            Holography.HolographyInit(w, h);
-            holographyInited = true;
+            // 반드시 deinit -> init 순서. 이전 액티비티가 남긴 상태가 있으면 먼저 정리한다.
+            synchronized (Stereo3DView.class) {
+                if (sHolographyInited) {
+                    Holography.deinitHolography();
+                    sHolographyInited = false;
+                    GlUtil.logi("이전 Holography 상태 해제");
+                }
+                Holography.HolographyInit(w, h);
+                sHolographyInited = true;
+            }
             GlUtil.logi("surface " + w + "x" + h + ", HolographyInit 완료");
         }
 

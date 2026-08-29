@@ -1,5 +1,11 @@
 plugins { id 'com.android.application' }
 
+def keystorePropsFile = rootProject.file("keystore.properties")
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
 android {
     namespace 'com.nauty.p3d'
     compileSdk 34
@@ -22,9 +28,26 @@ android {
         jniLibs { useLegacyPackaging true }
     }
 
+    signingConfigs {
+        release {
+            // keystore.properties 와 .jks 는 저장소에 넣지 않는다 (.gitignore 처리)
+            if (keystoreProps["storeFile"] != null) {
+                storeFile     file(keystoreProps["storeFile"])
+                storePassword keystoreProps["storePassword"]
+                keyAlias      keystoreProps["keyAlias"]
+                keyPassword   keystoreProps["keyPassword"]
+            }
+        }
+    }
+
     buildTypes {
-        debug   { minifyEnabled false }
-        release { minifyEnabled false }
+        debug { minifyEnabled false }
+        release {
+            minifyEnabled false
+            if (keystoreProps["storeFile"] != null) {
+                signingConfig signingConfigs.release
+            }
+        }
     }
     lint { abortOnError false }
 }

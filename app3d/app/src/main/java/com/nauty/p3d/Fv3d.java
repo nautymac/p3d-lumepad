@@ -2,6 +2,10 @@ package com.nauty.p3d;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 
 /**
  * 3DFV(com.wztech.service3d/.Service3D) 제어.
@@ -55,9 +59,31 @@ public final class Fv3d {
         ctx.sendBroadcast(new Intent(ACTION_PING));
     }
 
-    /** 3D 서비스 종료 (2D 로 되돌림). */
-    public static void close(Context ctx) {
+    /**
+     * 3DFV 를 재시작해 화이트리스트를 다시 읽게 한다.
+     *
+     * Service3D 는 화이트리스트를 인스턴스 생성 시점에만 읽으므로, 등록을 바꿔도
+     * 서비스를 새로 띄우지 않으면 반영되지 않는다.
+     *
+     * close_self 는 auto_start=false 를 저장하지만 (그대로 두면 다음 부팅에 서비스가 안 뜬다),
+     * Service3D.onCreate() 가 message 2100 을 arg1=1 로 보내 auto_start 를 true 로 되돌린다.
+     * 따라서 "정지 후 곧바로 재시작" 은 안전하다. 정지만 하고 끝내면 안 된다.
+     */
+    public static void restartService(final Context ctx) {
         ctx.sendBroadcast(new Intent(ACTION_CLOSE));
+        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override public void run() { startService(ctx); }
+        }, 1500);
+    }
+
+    private static void startService(Context ctx) {
+        Intent i = new Intent("com.wztech.service").setPackage("com.wztech.service3d");
+        try {
+            if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i);
+            else                             ctx.startService(i);
+        } catch (Throwable t) {
+            Log.e("P3D", "3DFV 재시작 실패", t);
+        }
     }
 
     /** 기본 화이트리스트 파일 경로. 형식: <windowType><sourceType>@<액티비티클래스명> */
