@@ -321,3 +321,13 @@ YouTube 20.x 로 올라가며 패키지 경로가 `apps.youtube` → `youtube` �
 
 기기 출고 시 Sight3D 가 만들어 둔 것이라, **이 파일이 없거나 다른 패널의 값이면 3D 가
 정렬되지 않는다.** 즉 같은 ProMa P10 에서만 동작한다.
+
+### 오버레이 등록 검증 기록
+
+| 앱 | 등록 | 결과 |
+|---|---|---|
+| Chrome | 기기 기본 `30@` | 원래부터 정상 |
+| YouTube 20.26.40 | `10@...Shell$HomeActivity` (기본 항목이 낡아 추가) | 오버레이 정상 |
+| Moonlight | `10@com.limelight.Game` 외 (컨트롤 센터가 전체 액티비티 등록) | **PC 스트리밍에서 정상 동작 확인** |
+
+Moonlight 은 spacedesk 와 같은 화면 미러링 계열이라 windowType `1`(sv) 이 맞았다.

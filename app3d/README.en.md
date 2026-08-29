@@ -357,3 +357,13 @@ streaming and game apps render in a different activity from their launcher one
 
 Sight3D generates it at the factory. **Without it, or with another panel's values, the 3D does
 not line up** — so this only works on the same ProMa P10.
+
+### Overlay registration — verified
+
+| App | Registration | Result |
+|---|---|---|
+| Chrome | stock `30@` | worked out of the box |
+| YouTube 20.26.40 | `10@...Shell$HomeActivity` (stock entry was stale, added) | overlay works |
+| Moonlight | `10@com.limelight.Game` and others (Control Center registers all activities) | **confirmed working while streaming from a PC** |
+
+Moonlight is a screen-streaming app like spacedesk, so windowType `1` (sv) was the right value.
