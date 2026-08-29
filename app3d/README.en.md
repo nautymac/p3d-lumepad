@@ -14,8 +14,10 @@ It reimplements the render pipeline recovered by reverse-engineering the stock
 - Live depth and convergence adjustment (not in the stock app)
 - Left/right swap toggle (L/R order varies per release)
 - Per-file layout memory — set it once and that file opens that way next time
+- **Resume** — remembers the last position per file and jumps back there next time
+- **Skip** — `◀◀` `▶▶`, 30 s on tap / 5 min on long-press
 - **Revert to auto-detect** — clears a wrongly saved choice and re-runs pixel detection
-- **Engine switching** — swap ExoPlayer ↔ libVLC mid-playback, position preserved
+- Playback engine is fixed to libVLC (ExoPlayer remains only as an init-failure fallback)
 - **3D Control Center** — register/unregister other apps (YouTube etc.) in the 3DFV whitelist
 
 ## Render pipeline
@@ -103,17 +105,20 @@ com.nauty.p3d.subtitle.SubtitleBitmap  text -> bitmap
 
 ## Playback engines
 
-Two implementations sit behind `com.nauty.p3d.engine.VideoEngine`. The `Engine` button in
-the settings panel swaps them without losing playback position, and the choice is saved.
+Two implementations sit behind `com.nauty.p3d.engine.VideoEngine`.
 
-| | ExoPlayer (default) | libVLC |
+| | libVLC (default) | ExoPlayer |
 |---|---|---|
-| Decoding | device MediaCodec | bundled FFmpeg (+ HW fallback) |
-| Strengths | light, HLS/DASH | container coverage, RTSP/SMB |
-| Input surface | `Surface` | `SurfaceTexture` (IVLCVout) |
+| Decoding | bundled FFmpeg (+ HW fallback) | device MediaCodec |
+| Input surface | `SurfaceTexture` (IVLCVout) | `Surface` |
+
+**There is no engine-selection button.** This device has no DTS/AC3 decoder, so under
+ExoPlayer most 3D movies play silent — there is nothing to switch to. ExoPlayer stays only
+as a fallback for when libVLC fails to initialise; in that case the app warns that audio may
+be missing and does not save the choice.
+(The debug intent extra `--es engine EXO|VLC` still works.)
 
 The 3D pipeline is engine-agnostic — either way frames arrive in the same OES texture.
-If libVLC fails to initialise, the app falls back to ExoPlayer automatically.
 
 ## Known bugs and fixes
 
@@ -367,3 +372,36 @@ not line up** — so this only works on the same ProMa P10.
 | Moonlight | `10@com.limelight.Game` and others (Control Center registers all activities) | **confirmed working while streaming from a PC** |
 
 Moonlight is a screen-streaming app like spacedesk, so windowType `1` (sv) was the right value.
+
+## Resume and skip
+
+**Resume** remembers the last playback position per file (`pos:<filename>`).
+
+| | |
+|---|---|
+| Saved | every 5 s during playback, plus immediately on leaving the app / going back to the list / exiting |
+| Not saved | before 15 s (pointless), or within 30 s of the end (treated as watched — the entry is deleted) |
+| Restored | jumps there automatically on the next play, with a `이어보기 mm:ss` toast |
+
+Because it saves on a 5-second cycle, **the position survives a force-stop or a crash.**
+Verified with `am force-stop`: killed after 25 s of playback → `pos = 19651` was recorded.
+
+An implementation note: **do not seek the moment playback starts.** libVLC ignores a seek
+while the length is still unknown, and ExoPlayer is unreliable before it is prepared. So the
+jump is queued and executed in `tick()` at **the first instant the duration is known**
+(`pendingResumeMs`).
+
+**Skip** buttons move 30 seconds on a tap, 5 minutes on a long-press.
+
+### Why seeking is slow
+
+Taking a few seconds to move within a large movie file is normal.
+
+- **Keyframe spacing** — showing an arbitrary point requires decoding from the preceding
+  keyframe. BluRay rips space them far apart. That is codec structure; there is no way around it.
+- **File size** — an 8–17 GB file costs real time just in index lookup and buffer refill.
+
+What was improved: VLC's seek was changed from `setPosition(ratio)` to **`setTime(ms)`**.
+The ratio form estimates a file offset and resynchronises from there, whereas `setTime` uses
+the demuxer's timestamp index (Cues in MKV), which is both faster and accurate. It falls back
+to the ratio form only for files that have no index.

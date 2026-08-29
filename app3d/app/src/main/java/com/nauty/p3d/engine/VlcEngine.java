@@ -188,7 +188,18 @@ public class VlcEngine implements VideoEngine {
     public void seekTo(long ms) {
         if (player == null) return;
         long len = player.getLength();
-        if (len > 0) player.setPosition(Math.max(0f, Math.min(1f, (float) ms / (float) len)));
+        if (len <= 0) return;
+        if (ms < 0) ms = 0;
+        if (ms > len) ms = len;
+
+        // setTime 은 디먹서의 타임스탬프 색인(MKV 의 Cues 등)을 쓴다.
+        // setPosition(비율) 은 파일 오프셋을 추정해 그 지점부터 재동기화하므로 더 느리고
+        // 부정확하다. 색인이 없는 파일에서만 비율 방식으로 물러난다.
+        try {
+            player.setTime(ms);
+        } catch (Throwable t) {
+            player.setPosition(Math.max(0f, Math.min(1f, (float) ms / (float) len)));
+        }
     }
 
     @Override public long getPosition() { return player == null ? 0 : player.getTime(); }

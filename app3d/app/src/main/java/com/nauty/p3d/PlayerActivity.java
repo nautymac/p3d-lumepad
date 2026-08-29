@@ -52,6 +52,17 @@ public class PlayerActivity extends Activity
     private static final String KEY_SUB_SCALE = "sub_scale";
     private static final String KEY_SUB_Y     = "sub_y";
     private static final String KEY_SUB_DEPTH = "sub_depth";
+    private static final String KEY_POS       = "pos:";
+
+    /** 끝에서 이 시간 안쪽이면 "다 봤다" 로 보고 이어보기를 하지 않는다. */
+    private static final long END_MARGIN_MS  = 30_000;
+    /** 이보다 앞이면 저장할 가치가 없다. */
+    private static final long MIN_SAVE_MS    = 15_000;
+    private static final long SAVE_EVERY_MS  = 5_000;
+
+    /** 재생이 시작되고 길이가 확정되면 이 지점으로 이동한다. 0 이면 없음. */
+    private long pendingResumeMs = 0;
+    private long lastSavedAt     = 0;
 
     /** 사용자가 직접 고르거나 이전에 고른 값을 불러온 경우. 자동 판별보다 우선한다. */
     private boolean manualChoice = false;
@@ -185,6 +196,56 @@ public class PlayerActivity extends Activity
         return (int) (v * getResources().getDisplayMetrics().density);
     }
 
+    // ---------------------------------------------------------- 이어보기
+
+    /** 이 파일을 마지막으로 본 지점. 없으면 0. */
+    private long loadResumeMs() {
+        if (mediaKey == null || mediaKey.isEmpty()) return 0;
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getLong(KEY_POS + mediaKey, 0);
+    }
+
+    /**
+     * 재생 위치를 주기적으로 저장한다. 매 틱(150ms)마다 쓰면 낭비라 5초 간격으로만 기록한다.
+     * 끝까지 본 파일은 기록을 지워서 다음에 처음부터 시작하게 한다.
+     */
+    private void savePositionPeriodically(long pos, long dur) {
+        if (dur <= 0 || seeking) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastSavedAt < SAVE_EVERY_MS) return;
+        lastSavedAt = now;
+        writePosition(pos, dur);
+    }
+
+    private void writePosition(long pos, long dur) {
+        if (mediaKey == null || mediaKey.isEmpty() || dur <= 0) return;
+        android.content.SharedPreferences.Editor e =
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit();
+        if (pos < MIN_SAVE_MS || pos >= dur - END_MARGIN_MS) {
+            e.remove(KEY_POS + mediaKey);      // 초반이거나 다 봤으면 기억할 것이 없다
+        } else {
+            e.putLong(KEY_POS + mediaKey, pos);
+        }
+        e.apply();
+    }
+
+    /** 앱을 벗어나거나 닫을 때는 즉시 기록한다. */
+    private void savePositionNow() {
+        if (engine == null) return;
+        writePosition(engine.getPosition(), engine.getDuration());
+    }
+
+    /** 현재 위치에서 상대 이동. */
+    private void skip(long deltaMs) {
+        if (engine == null) return;
+        long dur = engine.getDuration();
+        long target = engine.getPosition() + deltaMs;
+        if (target < 0) target = 0;
+        if (dur > 0 && target > dur - 1000) target = Math.max(0, dur - 1000);
+        engine.seekTo(target);
+        lastCueText = null;                     // 자막 다시 계산
+        Toast.makeText(this, (deltaMs > 0 ? "▶▶ " : "◀◀ ") + fmt(target), Toast.LENGTH_SHORT).show();
+    }
+
     // ------------------------------------------------------------ 재생바
 
     private View buildBottomBar() {
@@ -204,6 +265,9 @@ public class PlayerActivity extends Activity
         bottomBar.addView(btnList, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // 빠른 이동. 짧게 = 30초, 길게 = 5분.
+        addSkipButton(bottomBar, "◀◀", -30_000L, -300_000L);
+
         btnPlay = new Button(this);
         btnPlay.setText("❚❚");
         btnPlay.setAllCaps(false);
@@ -216,6 +280,8 @@ public class PlayerActivity extends Activity
         });
         bottomBar.addView(btnPlay, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        addSkipButton(bottomBar, "▶▶", 30_000L, 300_000L);
 
         seekBar = new SeekBar(this);
         seekBar.setOnSeekBarChangeListener(new SimpleSeek() {
@@ -264,7 +330,24 @@ public class PlayerActivity extends Activity
         return bottomBar;
     }
 
+    /** 빠른 이동 버튼. 짧게 누르면 short, 길게 누르면 long 만큼 이동한다. */
+    private void addSkipButton(LinearLayout parent, String label,
+                               final long shortMs, final long longMs) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { skip(shortMs); }
+        });
+        b.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override public boolean onLongClick(View v) { skip(longMs); return true; }
+        });
+        parent.addView(b, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
     private void backToList() {
+        savePositionNow();
         if (engine != null) { engine.pause(); }
         Intent i = new Intent(this, MainActivity.class);
         i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -526,11 +609,25 @@ public class PlayerActivity extends Activity
         long pos = engine.getPosition();
         long dur = engine.getDuration();
 
+        // 이어보기: 길이가 확정된 뒤에야 이동할 수 있다.
+        // libVLC 의 seek 는 내부적으로 setPosition(비율) 이라 길이를 모르면 무시된다.
+        if (pendingResumeMs > 0 && dur > 0) {
+            long target = pendingResumeMs;
+            pendingResumeMs = 0;
+            if (target < dur - END_MARGIN_MS) {
+                engine.seekTo(target);
+                lastCueText = null;                    // 자막 다시 계산
+                Toast.makeText(this, "이어보기 " + fmt(target), Toast.LENGTH_SHORT).show();
+            }
+        }
+
         if (!seeking && dur > 0) {
             seekBar.setMax((int) (dur / 1000));
             seekBar.setProgress((int) (pos / 1000));
             timeText.setText(fmt(pos) + " / " + fmt(dur));
         }
+
+        savePositionPeriodically(pos, dur);
 
         // 자막
         String cue = subtitleTrack == null ? null : subtitleTrack.textAt(pos);
@@ -702,6 +799,9 @@ public class PlayerActivity extends Activity
             engine.open(this, pendingUri, videoSurface, videoSurfaceTexture, this);
             engine.play();
         }
+        // 이어보기 예약. 실제 이동은 길이가 확정된 뒤 tick() 에서 한다.
+        pendingResumeMs = loadResumeMs();
+
         ui.removeCallbacks(ticker);
         ui.post(ticker);
         refreshLabels();
@@ -777,6 +877,7 @@ public class PlayerActivity extends Activity
     @Override
     protected void onPause() {
         super.onPause();
+        savePositionNow();
         if (engine != null) engine.pause();
         glView.onPause();
     }
@@ -792,6 +893,7 @@ public class PlayerActivity extends Activity
     protected void onDestroy() {
         super.onDestroy();
         ui.removeCallbacks(ticker);
+        savePositionNow();
         if (engine != null) { engine.release(); engine = null; }
     }
 
