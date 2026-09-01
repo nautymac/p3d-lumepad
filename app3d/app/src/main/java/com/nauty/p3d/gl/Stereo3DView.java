@@ -47,6 +47,14 @@ public class Stereo3DView extends GLSurfaceView {
     /** 화면 비 강제값 (0 = 소스 그대로). 레터박스가 거슬리거나 소스 비율이 틀린 경우용. */
     public static final float ASPECT_FILL = -1f;
 
+    /**
+     * 2D→3D 시어 램프에서 시차가 0 이 되는 세로 위치 (0=위, 1=아래).
+     * 0.5 면 화면 중앙이 스크린 평면이 되고 위아래가 각각 뒤/앞으로 갈린다.
+     * 원본 3DPlayer 의 상수쌍은 0.128 이었다 — 사실상 맨 위 기준이라
+     * 아래쪽만 시차가 몰렸다.
+     */
+    private static final float SHEAR_PIVOT = 0.5f;
+
     private volatile int          videoW       = 16;
     private volatile int          videoH       = 9;
     private volatile float        aspectOverride = 0f;
@@ -323,8 +331,18 @@ public class Stereo3DView extends GLSurfaceView {
             if (f == SourceFormat.MONO_2D) {
                 // 원본 frag2dto3d.sh: x += 0.004 - y * screenHeight * 0.0000122
                 // 원본에서 screenHeight 유니폼에 들어간 값이 실제로는 가로 해상도였다.
-                shearTop   = 0.004f * depth;
+                //
+                // 기울기는 원본 그대로 두고, 램프가 0 이 되는 높이(SHEAR_PIVOT)만 옮겼다.
+                // 원본 상수쌍의 영점은 0.004/0.031232 = v 0.128 — 화면 최상단 근처다.
+                // 그러면 시차가 아래로 갈수록 한 방향으로만 커져서
+                //   · 위쪽은 슬라이더를 움직여도 거의 변하지 않고
+                //   · 화면 아래에서 한쪽 눈이 depth=1 에 약 70px, 최대치에선 200px 넘게 밀린다
+                // 융합 한계를 넘으면 3D 가 아니라 그냥 찌그러져 보인다.
+                //
+                // 영점을 세로 중앙에 두면 위는 뒤로, 아래는 앞으로 갈리면서
+                // 화면 전체가 슬라이더에 반응하고 한쪽 눈의 최대 이동량도 절반이 된다.
                 shearSlope = 0.0000122f * surfW * depth;
+                shearTop   = shearSlope * SHEAR_PIVOT;
             }
 
             // 좌안: 원본 그대로

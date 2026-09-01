@@ -995,6 +995,11 @@ public class PlayerActivity extends Activity
         ui.post(ticker);
         refreshLabels();
 
+        // 디버그: --ei depth N 이면 2D→3D 시차 강도를 N% 로 시작한다 (슬라이더와 같은 단위).
+        // 시어 램프를 측정하려면 값을 손으로 맞추지 않고 고정할 수 있어야 한다.
+        int depthPct = getIntent().getIntExtra("depth", -1);
+        if (depthPct >= 0) glView.setDepth(depthPct / 100f);
+
         // 디버그: --ei freezems N 이면 그 지점으로 이동해 정지시킨다.
         // 마스크 반응을 측정하려면 매 캡처가 같은 프레임이어야 하기 때문.
         final int freezeMs = getIntent().getIntExtra("freezems", 0);
