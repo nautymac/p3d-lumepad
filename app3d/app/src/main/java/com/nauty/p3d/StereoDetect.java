@@ -50,6 +50,14 @@ public final class StereoDetect {
                     durMs * 62 / 100, durMs * 80 / 100
             };
 
+            // half / full 판정은 반드시 컨테이너가 적어둔 해상도로 해야 한다.
+            // getFrameAtTime 이 돌려주는 비트맵은 축소돼 올 수 있다. 실제로
+            // "Coraline ... 3840X1080 10BIT HEVC" 는 비트맵이 1920x1080 으로 와서
+            // 종횡비가 1.78 이 되고, 그러면 full-SBS 가 half-SBS 로 잘못 잡혀
+            // 좌우 눈 그림이 가로로 눌린 채 재생된다.
+            int metaW = intMeta(r, MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+            int metaH = intMeta(r, MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+
             int sbs = 0, tb = 0, mono = 0;
             int frameW = 0, frameH = 0;
 
@@ -68,13 +76,18 @@ public final class StereoDetect {
                 // vote == -1 : 대비 부족, 표본 제외
             }
 
+            // 비율 판정에 쓸 크기: 컨테이너 값이 있으면 그것, 없으면 비트맵 크기.
+            int aspW = metaW > 0 ? metaW : frameW;
+            int aspH = metaH > 0 ? metaH : frameH;
+
             Log.i(TAG, "스테레오 판별 표본: SBS=" + sbs + " TB=" + tb + " 2D=" + mono
-                    + " (" + frameW + "x" + frameH + ")");
+                    + " (표본 " + frameW + "x" + frameH
+                    + ", 원본 " + metaW + "x" + metaH + ")");
 
             if (sbs == 0 && tb == 0 && mono == 0) return null;   // 쓸만한 표본이 없었다
 
-            if (sbs > tb && sbs >= mono) return sbsVariant(frameW, frameH);
-            if (tb > sbs && tb >= mono)  return tbVariant(frameW, frameH);
+            if (sbs > tb && sbs >= mono) return sbsVariant(aspW, aspH);
+            if (tb > sbs && tb >= mono)  return tbVariant(aspW, aspH);
             return SourceFormat.MONO_2D;
 
         } catch (Throwable t) {
@@ -82,6 +95,15 @@ public final class StereoDetect {
             return null;
         } finally {
             try { r.release(); } catch (Exception ignored) { }
+        }
+    }
+
+    private static int intMeta(MediaMetadataRetriever r, int key) {
+        try {
+            String v = r.extractMetadata(key);
+            return v == null ? 0 : Integer.parseInt(v.trim());
+        } catch (Exception e) {
+            return 0;
         }
     }
 

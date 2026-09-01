@@ -14,6 +14,7 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.Surface;
 import android.view.View;
@@ -43,9 +44,10 @@ public class PlayerActivity extends Activity
         implements Stereo3DView.Callback, VideoEngine.Listener {
 
     public static final String EXTRA_TITLE = "title";
-    /** 재생 엔진 강제 지정 ("EXO" | "VLC"). 지정하면 저장된 선택을 덮어쓴다. */
+    /** 재생 엔진 강제 지정 ("EXO" | "VLC"). 이번 재생에만 적용되고 저장되지 않는다. */
     public static final String EXTRA_ENGINE = "engine";
 
+    private static final String TAG        = "P3D";
     private static final String PREFS      = "p3d";
     private static final String KEY_FORMAT = "fmt:";
     private static final String KEY_ENGINE    = "engine";
@@ -53,6 +55,15 @@ public class PlayerActivity extends Activity
     private static final String KEY_SUB_Y     = "sub_y";
     private static final String KEY_SUB_DEPTH = "sub_depth";
     private static final String KEY_POS       = "pos:";
+    private static final String KEY_ASPECT    = "aspect";
+
+    /** 이번 재생에만 적용되는 엔진 지정 (인텐트 엑스트라). 저장하지 않는다. */
+    private VideoEngine.Kind forcedKind = null;
+    /**
+     * 이보다 가로가 크면 소프트웨어 디코딩으로는 실시간을 못 맞춘다.
+     * 이 경우 libVLC 에 디코딩 품질을 깎아서라도 속도를 내라고 알려준다.
+     */
+    private static final int HEAVY_SOURCE_WIDTH = 2560;
 
     /** 끝에서 이 시간 안쪽이면 "다 봤다" 로 보고 이어보기를 하지 않는다. */
     private static final long END_MARGIN_MS  = 30_000;
@@ -85,7 +96,7 @@ public class PlayerActivity extends Activity
 
     // 설정 패널
     private View settingsPanel;
-    private Button btnSource, btnOutput, btnSwap, btnSubtitle;
+    private Button btnSource, btnOutput, btnSwap, btnSubtitle, btnAspect, btnEngine;
     private TextView statusText, subtitleName;
 
     // 자막
@@ -147,12 +158,13 @@ public class PlayerActivity extends Activity
 
         setContentView(root);
 
+        // 디버그용 엔진 지정. 이번 재생에만 적용하고 저장하지는 않는다.
+        // 저장하면 테스트로 한 번 EXO 를 걸었을 때 그 뒤 모든 재생이 ExoPlayer 가 되고,
+        // 이 기기에서는 그게 곧 AC3/DTS 무음이라 사용자가 원인을 알기 어렵다.
         String forced = getIntent().getStringExtra(EXTRA_ENGINE);
         if (forced != null) {
             try {
-                VideoEngine.Kind k = VideoEngine.Kind.valueOf(forced.toUpperCase(Locale.US));
-                getSharedPreferences(PREFS, MODE_PRIVATE)
-                        .edit().putString(KEY_ENGINE, k.name()).apply();
+                forcedKind = VideoEngine.Kind.valueOf(forced.toUpperCase(Locale.US));
             } catch (IllegalArgumentException ignored) { }
         }
 
@@ -190,6 +202,7 @@ public class PlayerActivity extends Activity
         subtitleScale = Math.max(0.4f, sp.getInt(KEY_SUB_SCALE, 100) / 100f);
         glView.setSubtitleY(sp.getInt(KEY_SUB_Y, 4) / 100f);
         glView.setSubtitleDepth(sp.getInt(KEY_SUB_DEPTH, 0));
+        glView.setAspectOverride(sp.getFloat(KEY_ASPECT, 0f));
     }
 
     private int dp(int v) {
@@ -456,6 +469,14 @@ public class PlayerActivity extends Activity
             }
         }));
 
+        btnAspect = panelButton(p, "화면 비", new View.OnClickListener() {
+            @Override public void onClick(View v) { cycleAspect(); }
+        });
+
+        btnEngine = panelButton(p, "엔진", new View.OnClickListener() {
+            @Override public void onClick(View v) { switchEngine(); }
+        });
+
         // 엔진 선택 버튼은 두지 않는다.
         // 이 기기에는 DTS/AC3 디코더가 없어서 ExoPlayer 로는 3D 영화 대부분이 무음이다.
         // libVLC 가 자체 디코더를 들고 있으므로 그쪽만 쓰고, ExoPlayer 는
@@ -650,6 +671,39 @@ public class PlayerActivity extends Activity
     }
 
     @SuppressLint("SetTextI18n")
+    /**
+     * 화면 비 선택지. 0 = 소스 해상도가 시키는 대로 (기본).
+     *
+     * 소스 비율 정보가 틀렸거나 (SBS 를 half/full 로 잘못 잡은 경우 등) 위아래 검은 띠가
+     * 싫을 때 쓰라고 둔다. 자동 판별이 맞으면 손댈 일이 없다.
+     */
+    private static final float[] ASPECTS = {
+            0f, 16f / 9f, 2.40f, 1.85f, 4f / 3f, Stereo3DView.ASPECT_FILL
+    };
+
+    private static String aspectLabel(float a) {
+        if (a == 0f)                        return "자동";
+        if (a == Stereo3DView.ASPECT_FILL)  return "꽉 채우기";
+        if (Math.abs(a - 16f / 9f)  < 0.01f) return "16:9";
+        if (Math.abs(a - 2.40f)     < 0.01f) return "2.40:1";
+        if (Math.abs(a - 1.85f)     < 0.01f) return "1.85:1";
+        if (Math.abs(a - 4f / 3f)   < 0.01f) return "4:3";
+        return String.format(Locale.US, "%.2f:1", a);
+    }
+
+    private void cycleAspect() {
+        float cur = glView.getAspectOverride();
+        int i = 0;
+        for (int k = 0; k < ASPECTS.length; k++) {
+            if (ASPECTS[k] == cur) { i = k; break; }
+        }
+        float next = ASPECTS[(i + 1) % ASPECTS.length];
+        glView.setAspectOverride(next);
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putFloat(KEY_ASPECT, next).apply();
+        refreshLabels();
+    }
+
     private void refreshLabels() {
         btnPlay.setText(engine != null && engine.isPlaying() ? "❚❚" : "▶");
         if (btnSource == null || btnSwap == null) return;   // 패널 구성 전이면 건너뛴다
@@ -664,6 +718,8 @@ public class PlayerActivity extends Activity
         }
         btnOutput.setText("출력: " + out);
         btnSwap.setText(glView.isSwapLR() ? "좌우반전 ON" : "좌우반전 OFF");
+        if (btnAspect != null) btnAspect.setText("화면 비: " + aspectLabel(glView.getAspectOverride()));
+        if (btnEngine != null) btnEngine.setText("엔진: " + currentKind().label);
         updateSubtitleName();
 
         // 지금 소스 포맷이 어디서 왔는지 보여준다. 수동으로 잘못 고른 상태를 알아채야 하기 때문.
@@ -762,15 +818,76 @@ public class PlayerActivity extends Activity
     // -------------------------------------------------------------- 엔진
 
     /** 기본은 libVLC. ExoPlayer 는 이 기기에서 DTS/AC3 를 못 재생해 쓸모가 없다. */
+    /**
+     * 소스 가로 해상도. 컨테이너 헤더만 읽으므로 프레임 디코딩보다 훨씬 싸다.
+     * 네트워크 URL 에서는 시간이 걸릴 수 있어 로컬 스킴에서만 본다.
+     */
+    private int[] probeVideoSize(Uri uri) {
+        String s = uri.getScheme();
+        if (s != null && !"content".equals(s) && !"file".equals(s)) return null;
+        android.media.MediaMetadataRetriever r = new android.media.MediaMetadataRetriever();
+        try {
+            r.setDataSource(this, uri);
+            int w = metaInt(r, android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+            int h = metaInt(r, android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+            return (w > 0 && h > 0) ? new int[]{w, h} : null;
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            try { r.release(); } catch (Exception ignored) { }
+        }
+    }
+
+    private static int metaInt(android.media.MediaMetadataRetriever r, int key) {
+        try {
+            String v = r.extractMetadata(key);
+            return v == null ? 0 : Integer.parseInt(v.trim());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     private VideoEngine.Kind currentKind() {
+        if (forcedKind != null) return forcedKind;
         if (engine != null) return engine.kind();
+        // 엔진 선택은 파일별로만 저장한다. 전역으로 저장하면 한 파일 때문에 바꾼 선택이
+        // 다른 모든 파일에 따라붙고, 이 기기에서 ExoPlayer 는 곧 AC3/DTS 무음이다.
         String v = getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString(KEY_ENGINE, VideoEngine.Kind.VLC.name());
+                .getString(KEY_ENGINE + mediaKey, VideoEngine.Kind.VLC.name());
         try {
             return VideoEngine.Kind.valueOf(v);
         } catch (IllegalArgumentException e) {
             return VideoEngine.Kind.VLC;
         }
+    }
+
+    /**
+     * 엔진을 바꿔서 같은 지점부터 다시 연다.
+     *
+     * 버튼을 다시 둔 이유: 3840x1080 10bit HEVC 처럼 MediaCodec 이 거부하는 소스에서는
+     * libVLC 가 소프트웨어 디코딩으로 떨어져 22fps 밖에 못 낸다. ExoPlayer 는 같은 파일을
+     * 하드웨어로 27.7fps 에 돌리지만, 이 기기엔 AC3/DTS 디코더가 없어 그런 파일은 무음이 된다.
+     * 어느 쪽이 나은지는 파일마다 다르므로 사용자가 고르게 한다.
+     */
+    private void switchEngine() {
+        VideoEngine.Kind next = currentKind() == VideoEngine.Kind.VLC
+                ? VideoEngine.Kind.EXO : VideoEngine.Kind.VLC;
+
+        long at = engine == null ? 0 : engine.getPosition();
+        if (engine != null) { engine.release(); engine = null; }
+
+        forcedKind = null;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(KEY_ENGINE + mediaKey, next.name()).apply();
+
+        startPlayback();
+        if (at > 0) pendingResumeMs = at;
+
+        Toast.makeText(this, next == VideoEngine.Kind.EXO
+                        ? "ExoPlayer — 하드웨어 디코딩(부드러움). AC3/DTS 는 무음"
+                        : "libVLC — 소리는 나오지만 4K급은 끊길 수 있음",
+                Toast.LENGTH_LONG).show();
+        refreshLabels();
     }
 
     @Override
@@ -783,7 +900,21 @@ public class PlayerActivity extends Activity
     private void startPlayback() {
         if (videoSurface == null || pendingUri == null || engine != null) return;
 
-        engine = currentKind() == VideoEngine.Kind.VLC ? new VlcEngine() : new ExoEngine();
+        // 큰 소스는 소프트웨어 폴백이 걸리면 재생이 무너진다. 그때는 폴백을 막고
+        // MediaCodec 만 쓰게 한다. 실패하면 onError 에서 한 번 풀고 다시 연다.
+        int[] size = probeVideoSize(pendingUri);
+        int vw = size == null ? 0 : size[0];
+        int vh = size == null ? 0 : size[1];
+        boolean heavy = vw >= HEAVY_SOURCE_WIDTH;
+        if (vw > 0) {
+            Log.i(TAG, "소스 " + vw + "x" + vh + (heavy ? " (무거운 소스)" : ""));
+            // vout 콜백(onNewVideoLayout)이 아예 오지 않는 소스가 있다. 그때는 소스 크기를
+            // 모른 채 기본값 16:9 로 배치돼 화면이 눌린다. 미리 알아낸 값으로 먼저 맞춰둔다.
+            onVideoSize(vw, vh);
+        }
+
+        engine = currentKind() == VideoEngine.Kind.VLC
+                ? new VlcEngine(heavy, vw, vh) : new ExoEngine();
         try {
             engine.open(this, pendingUri, videoSurface, videoSurfaceTexture, this);
             engine.play();
@@ -832,9 +963,22 @@ public class PlayerActivity extends Activity
         ui.post(new Runnable() {
             @Override public void run() {
                 glView.setVideoSize(width, height);
-                if (!manualChoice && !detected) {
-                    SourceFormat byAspect = SourceFormat.fromAspect(width, height);
-                    if (byAspect != null) applySourceFormat(byAspect);
+                SourceFormat byAspect = SourceFormat.fromAspect(width, height);
+                if (!manualChoice && byAspect != null) {
+                    if (!detected) {
+                        applySourceFormat(byAspect);
+                    } else {
+                        // 픽셀 판별은 배치(SBS/TB/2D)만 정하게 하고, half 냐 full 이냐는
+                        // 디코더가 실제로 알려준 해상도가 정하게 한다. 판별용 썸네일은
+                        // 축소돼 올 수 있어서 (3840x1080 이 1920x1080 으로) full 을
+                        // half 로 잘못 잡는다. 눌린 화면으로 보이는 원인이었다.
+                        SourceFormat cur = glView.getSourceFormat();
+                        if (byAspect == SourceFormat.SBS_FULL && cur == SourceFormat.SBS_HALF) {
+                            applySourceFormat(SourceFormat.SBS_FULL);
+                        } else if (byAspect == SourceFormat.TB_FULL && cur == SourceFormat.TB_HALF) {
+                            applySourceFormat(SourceFormat.TB_FULL);
+                        }
+                    }
                 }
                 refreshLabels();
             }

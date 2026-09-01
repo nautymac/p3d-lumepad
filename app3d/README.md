@@ -15,7 +15,8 @@ ProMa P10 (무안경 3D 태블릿) 용 통합 3D 플레이어.
 - **이어보기** — 파일별로 마지막 위치를 기억해 다음 재생 때 그 지점으로 이동
 - **빠른 이동** — `◀◀` `▶▶` 짧게 30초 / 길게 5분
 - **자동 판별로 되돌리기** — 잘못 저장된 선택을 지우고 픽셀 판별을 다시 실행
-- 재생 엔진은 libVLC 고정 (ExoPlayer 는 초기화 실패 시 폴백)
+- **화면 비 선택** — 자동 / 16:9 / 2.40:1 / 1.85:1 / 4:3 / 꽉 채우기
+- **엔진 선택** — libVLC(소리) ↔ ExoPlayer(4K 하드웨어 디코딩), 파일별로 저장
 - **3D 컨트롤 센터** — 남의 앱(YouTube 등)을 3DFV 화이트리스트에 등록/해제
 
 ## 렌더 파이프라인
@@ -99,10 +100,15 @@ com.nauty.p3d.gl.Fbo / GlUtil / BlitRenderer
 | 디코딩 | 자체 FFmpeg (+ HW 폴백) | 기기 MediaCodec |
 | 입력면 | `SurfaceTexture` (IVLCVout) | `Surface` |
 
-**엔진 선택 버튼은 두지 않는다.** 이 기기에는 DTS/AC3 디코더가 없어 ExoPlayer 로는
-3D 영화 대부분이 무음이라 쓸 일이 없다. ExoPlayer 는 libVLC 초기화가 실패했을 때의
-폴백으로만 남고, 그 경우 "소리가 안 날 수 있다" 고 알리며 그 선택을 저장하지는 않는다.
-(디버깅용 인텐트 엑스트라 `--es engine EXO|VLC` 는 계속 동작한다.)
+**엔진 선택 버튼이 설정 패널에 있다** (파일별로 저장, 재생 위치 유지).
+기본은 libVLC — 이 기기에 DTS/AC3 디코더가 없어 ExoPlayer 로는 3D 영화 대부분이 무음이다.
+그런데 MediaCodec 이 거부하는 소스에서는 반대가 된다: 3840x1080 10bit HEVC 는
+libVLC 가 소프트웨어로 떨어져 21fps 밖에 못 내고, ExoPlayer 는 하드웨어로 27.6fps 를 낸다.
+어느 쪽이 나은지가 파일마다 갈리므로 사용자가 고르게 두었다. 아래 "4K HEVC" 절 참고.
+
+선택은 **전역이 아니라 파일별로 저장**한다. 전역으로 저장하면 한 파일 때문에 바꾼 설정이
+다른 모든 파일에 따라붙어 조용히 무음이 된다 (실제로 겪었다).
+디버깅용 인텐트 엑스트라 `--es engine EXO|VLC` 는 이번 재생에만 적용되고 저장되지 않는다.
 
 3D 파이프라인은 엔진과 무관하다 — 어느 쪽이든 프레임이 같은 OES 텍스처로 들어온다.
 
@@ -367,3 +373,73 @@ Moonlight 은 spacedesk 와 같은 화면 미러링 계열이라 windowType `1`(
 비율 방식은 파일 오프셋을 추정해 그 지점부터 재동기화하지만, `setTime` 은 디먹서의
 타임스탬프 색인(MKV 의 Cues)을 쓰므로 더 빠르고 정확하다. 색인이 없는 파일에서만
 비율 방식으로 후퇴한다.
+
+## 4K HEVC 가 끊기는 이유와 대처
+
+**증상: 3840x1080 10bit HEVC (full-SBS) 파일이 끊기고, 화면 비도 틀렸다.**
+
+원인이 두 가지 겹쳐 있었다.
+
+### 1. libVLC 가 소프트웨어로 디코딩한다
+
+```
+E/VLC-std: [hevc @ ...] Could not find ref with POC 660
+E/VLC    : libvlc decoder: more than 5 seconds of late video -> dropping frame (computer too slow ?)
+```
+`[hevc @ ...]` 는 libavcodec, 즉 **소프트웨어** 디코더다. MediaCodec 이 이 스트림을 거부해서
+폴백이 걸렸다. 같은 파일을 ExoPlayer(MediaCodec 전용)로 열면 하드웨어로 잘 돌아간다.
+
+| | fps | 소리 |
+|---|---|---|
+| libVLC (소프트웨어) | 19.8 → 21 (튜닝 후) | **나온다** (AC3 자체 디코딩) |
+| ExoPlayer (하드웨어) | **27.6** | 안 난다 (기기에 AC3 디코더 없음) |
+
+**`setHWDecoderEnabled(true, true)` 로는 못 고친다.** libVLC 3.6.0 의 바이트코드를 보면
+`force` 인자는 기기 판별이 `UNKNOWN` 일 때만 쓰이고, 만들어지는 옵션은 언제나
+`:codec=mediacodec_ndk,iomx,all` 처럼 **마지막이 `all`** 이라 avcodec 폴백이 항상 열려 있다.
+(이 기기는 `ro.board.platform=mt6797`, 블랙리스트에 없어 판별 결과가 `ALL` 이다.)
+
+그래서 폴백을 막는 대신 폴백 경로를 빠르게 했다 — 가로 2560px 이상이면
+`--avcodec-skiploopfilter 4`(디블로킹 생략) + `--avcodec-threads` + `--avcodec-fast`.
+19.8 → 21fps. 부족하면 설정에서 ExoPlayer 로 바꾸면 된다 (소리는 포기).
+
+병목은 디코더지 저장소나 GPU 가 아니다. 순차 읽기는 **162 MB/s** 인데
+이 파일의 비트레이트는 12 Mbps 다.
+
+### 2. `onNewVideoLayout` 이 오지 않는 소스가 있다
+
+이 파일에서는 VLC 의 `onNewVideoLayout` 콜백이 **한 번도 오지 않았다.** 그러면
+`setVideoSize()` 가 호출되지 않아 소스 크기가 기본값 16:9 에 머물고, SurfaceTexture 버퍼도
+시작할 때 잡아둔 화면 크기(2560x1504)에 머물러 VLC 가 거기에 맞춰 스케일해 버린다.
+
+화면 실측 (검은 띠 두께로 표시영역 역산):
+```
+수정 전: 1422x1512  종횡비 0.940   ← 기본값 16:9 를 full-SBS 로 나눈 (16/2)/9 = 0.889
+수정 후: 2560x1448  종횡비 1.768   ← 3840x1080 full-SBS 의 한쪽 눈 = 1920x1080 = 1.778
+```
+
+수정: 콜백을 기다리지 않고 `MediaMetadataRetriever` 로 **재생 전에 해상도를 알아내어**
+`setVideoSize()` 와 VLC 의 window/buffer 크기를 미리 맞춘다. 콜백이 오면 그때 갱신한다.
+
+### 3. 판별용 썸네일 크기로 half/full 을 나누고 있었다
+
+`getFrameAtTime()` 이 돌려주는 비트맵은 축소돼 올 수 있다. 이 파일은 3840x1080 인데
+비트맵은 1920x1080 으로 와서 종횡비가 1.78 이 되고, `>= 2.6` 이어야 full 로 보는 규칙에
+걸려 **full-SBS 가 half-SBS 로 잡혔다.**
+
+수정: half/full 판정은 `METADATA_KEY_VIDEO_WIDTH/HEIGHT`(컨테이너 값)로 한다.
+로그도 둘 다 찍는다 — `표본 1920x1080, 원본 3840x1080`.
+추가로 디코더가 알려준 실제 해상도가 full 을 가리키면 픽셀 판별 결과를 덮어쓴다.
+픽셀 판별은 **배치(SBS/TB/2D)** 를, 해상도는 **half/full** 을 정한다.
+
+### 화면 비 수동 선택
+
+그래도 틀리는 소스가 있을 수 있어 설정에 `화면 비` 버튼을 두었다.
+`자동 → 16:9 → 2.40:1 → 1.85:1 → 4:3 → 꽉 채우기` 순으로 순환하고 저장된다.
+`꽉 채우기` 는 화면 비율에 맞춰 늘려 레터박스를 없앤다.
+
+### 근본 해결
+
+이 기기의 하드웨어 디코더는 3840x2176 까지 지원한다. PC 에서 8bit 로 다시 인코딩하면
+libVLC 에서도 하드웨어로 돌아가 **소리와 부드러움을 둘 다** 얻는다.
+`ffmpeg -i in.mkv -c:v libx265 -pix_fmt yuv420p -c:a copy out.mkv`

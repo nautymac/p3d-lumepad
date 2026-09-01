@@ -44,8 +44,12 @@ public class Stereo3DView extends GLSurfaceView {
     private volatile float        depth        = 1.0f;    // 2D->3D 시어 배율
     private volatile float        perOffset    = 0.0f;    // 수렴점 (+-0.015)
     private volatile float        bottomCut    = 1.0f;    // 1.0 = 비활성
+    /** 화면 비 강제값 (0 = 소스 그대로). 레터박스가 거슬리거나 소스 비율이 틀린 경우용. */
+    public static final float ASPECT_FILL = -1f;
+
     private volatile int          videoW       = 16;
     private volatile int          videoH       = 9;
+    private volatile float        aspectOverride = 0f;
 
     /** 자막을 화면 앞쪽으로 띄우는 시차(화면 px). 클수록 앞으로 나온다. */
     private volatile float subtitleDepth = 0f;
@@ -116,6 +120,14 @@ public class Stereo3DView extends GLSurfaceView {
         perOffset = Math.max(-0.015f, Math.min(0.015f, p));
         requestRender();
     }
+
+    /**
+     * 한쪽 눈 그림의 종횡비를 강제한다.
+     * 0 이면 소스 해상도에서 계산한 값을 쓰고 (기본), {@link #ASPECT_FILL} 이면
+     * 화면 비율에 맞춰 늘려 레터박스를 없앤다.
+     */
+    public void setAspectOverride(float a) { aspectOverride = a; requestRender(); }
+    public float getAspectOverride()       { return aspectOverride; }
 
     public void setVideoSize(int w, int h) {
         if (w > 0 && h > 0) { videoW = w; videoH = h; requestRender(); }
@@ -396,6 +408,9 @@ public class Stereo3DView extends GLSurfaceView {
         }
 
         private float sourceAspect(SourceFormat f) {
+            float o = aspectOverride;
+            if (o == ASPECT_FILL) return (float) surfW / (float) surfH;  // 레터박스 없이 꽉 채움
+            if (o > 0f)           return o;
             return f.displayAspect(videoW, videoH);
         }
     }

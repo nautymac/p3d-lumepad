@@ -17,7 +17,8 @@ It reimplements the render pipeline recovered by reverse-engineering the stock
 - **Resume** — remembers the last position per file and jumps back there next time
 - **Skip** — `◀◀` `▶▶`, 30 s on tap / 5 min on long-press
 - **Revert to auto-detect** — clears a wrongly saved choice and re-runs pixel detection
-- Playback engine is fixed to libVLC (ExoPlayer remains only as an init-failure fallback)
+- **Aspect ratio** — auto / 16:9 / 2.40:1 / 1.85:1 / 4:3 / fill
+- **Engine choice** — libVLC (audio) vs ExoPlayer (4K hardware decoding), saved per file
 - **3D Control Center** — register/unregister other apps (YouTube etc.) in the 3DFV whitelist
 
 ## Render pipeline
@@ -112,11 +113,15 @@ Two implementations sit behind `com.nauty.p3d.engine.VideoEngine`.
 | Decoding | bundled FFmpeg (+ HW fallback) | device MediaCodec |
 | Input surface | `SurfaceTexture` (IVLCVout) | `Surface` |
 
-**There is no engine-selection button.** This device has no DTS/AC3 decoder, so under
-ExoPlayer most 3D movies play silent — there is nothing to switch to. ExoPlayer stays only
-as a fallback for when libVLC fails to initialise; in that case the app warns that audio may
-be missing and does not save the choice.
-(The debug intent extra `--es engine EXO|VLC` still works.)
+**The settings panel has an engine button** (saved per file, playback position preserved).
+libVLC is the default — this device has no DTS/AC3 decoder, so under ExoPlayer most 3D
+movies play silent. But for sources MediaCodec refuses, it flips: a 3840x1080 10-bit HEVC
+file drops libVLC to software decoding and 21 fps, while ExoPlayer decodes it in hardware at
+27.6 fps. Which one wins depends on the file, so the choice is the user's. See "4K HEVC" below.
+
+The choice is stored **per file, not globally**. Storing it globally means a switch made for
+one file follows every other file and silently kills their audio (this actually happened).
+The debug intent extra `--es engine EXO|VLC` applies to that playback only and is not saved.
 
 The 3D pipeline is engine-agnostic — either way frames arrive in the same OES texture.
 
@@ -405,3 +410,75 @@ What was improved: VLC's seek was changed from `setPosition(ratio)` to **`setTim
 The ratio form estimates a file offset and resynchronises from there, whereas `setTime` uses
 the demuxer's timestamp index (Cues in MKV), which is both faster and accurate. It falls back
 to the ratio form only for files that have no index.
+
+## Why 4K HEVC stutters, and what to do
+
+**Symptom: a 3840x1080 10-bit HEVC (full-SBS) file stutters, and its aspect ratio is wrong.**
+
+Two separate causes were stacked on top of each other.
+
+### 1. libVLC decodes it in software
+
+```
+E/VLC-std: [hevc @ ...] Could not find ref with POC 660
+E/VLC    : libvlc decoder: more than 5 seconds of late video -> dropping frame (computer too slow ?)
+```
+`[hevc @ ...]` is libavcodec, i.e. the **software** decoder. MediaCodec refused this stream and
+the fallback kicked in. The same file opened with ExoPlayer (MediaCodec only) decodes in hardware.
+
+| | fps | audio |
+|---|---|---|
+| libVLC (software) | 19.8 → 21 (after tuning) | **works** (decodes AC3 itself) |
+| ExoPlayer (hardware) | **27.6** | silent (no AC3 decoder on this device) |
+
+**`setHWDecoderEnabled(true, true)` cannot fix this.** Disassembling libVLC 3.6.0 shows the
+`force` argument only matters when device detection returns `UNKNOWN`, and the option it builds
+always ends in `all` — `:codec=mediacodec_ndk,iomx,all` — so the avcodec fallback is always open.
+(This device is `ro.board.platform=mt6797`, absent from the blacklist, so detection returns `ALL`.)
+
+So instead of blocking the fallback, the fallback path was made faster: for sources 2560px wide
+or more, `--avcodec-skiploopfilter 4` (skip deblocking) plus `--avcodec-threads` and
+`--avcodec-fast`. That is 19.8 → 21 fps. If it is still not enough, switch to ExoPlayer in the
+settings (and give up the audio).
+
+The bottleneck is the decoder, not storage or GPU. Sequential read measures **162 MB/s**, while
+this file's bitrate is 12 Mbps.
+
+### 2. Some sources never fire `onNewVideoLayout`
+
+For this file VLC's `onNewVideoLayout` callback **never arrived**. Without it `setVideoSize()` is
+never called, so the source size stays at its 16:9 default and the SurfaceTexture buffer stays at
+the screen size guessed at startup (2560x1504) — VLC then scales the picture into that.
+
+Measured on screen (display area derived from the black bar thickness):
+```
+before: 1422x1512  aspect 0.940   ← the 16:9 default read as full-SBS: (16/2)/9 = 0.889
+after:  2560x1448  aspect 1.768   ← one eye of 3840x1080 full-SBS = 1920x1080 = 1.778
+```
+
+Fix: do not wait for the callback. Read the resolution with `MediaMetadataRetriever` **before
+playback** and pre-set both `setVideoSize()` and VLC's window/buffer size. The callback still
+updates them if it does arrive.
+
+### 3. half/full was decided from the thumbnail size
+
+The bitmap `getFrameAtTime()` returns may be downscaled. This file is 3840x1080 but the bitmap
+came back 1920x1080, an aspect of 1.78, which fails the `>= 2.6` test for full — so
+**full-SBS was detected as half-SBS.**
+
+Fix: decide half/full from `METADATA_KEY_VIDEO_WIDTH/HEIGHT` (the container's own values). The log
+now prints both — `표본 1920x1080, 원본 3840x1080`. On top of that, if the resolution the decoder
+reports says full, it overrides the pixel detection: pixel detection decides the **layout**
+(SBS/TB/2D), resolution decides **half vs full**.
+
+### Choosing the aspect ratio by hand
+
+Some source will still get it wrong, so the settings panel has an `화면 비` (aspect) button. It
+cycles `auto → 16:9 → 2.40:1 → 1.85:1 → 4:3 → fill` and the choice is saved. `fill` stretches to
+the screen's own ratio, removing the letterbox.
+
+### The real fix
+
+This device's hardware decoder handles up to 3840x2176. Re-encoding to 8-bit on a PC makes libVLC
+use hardware too, giving **both** sound and smooth playback:
+`ffmpeg -i in.mkv -c:v libx265 -pix_fmt yuv420p -c:a copy out.mkv`
