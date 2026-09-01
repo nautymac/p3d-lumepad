@@ -1,6 +1,8 @@
 # 빌드 산출물 (재생성 가능, 수백 MB)
 app3d/build/
 app3d/app/build/
+app3d/ffmpeg/build/
+app3d/ffmpeg/.cxx/
 app3d/.gradle/
 app3d/local.properties
 .gradle/
@@ -22,3 +24,6 @@ keystore.properties
 
 # Moonlight APK 분석용 임시 폴더 (재생성 가능, 서드파티 APK 포함)
 /ml/
+
+# FFmpeg 정적 라이브러리와 헤더 (app3d/ffmpeg/README.md 의 스크립트로 재생성)
+app3d/ffmpeg/src/main/jni/ffmpeg/

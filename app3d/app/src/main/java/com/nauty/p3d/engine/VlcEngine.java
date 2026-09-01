@@ -66,6 +66,10 @@ public class VlcEngine implements VideoEngine {
      */
     private final int srcW, srcH;
 
+    /** VLC 로그 상세도 (0=기본, 1=-v, 2=-vv). 디버깅용. */
+    private int verbose = 0;
+    public void setVerbose(int v) { verbose = v; }
+
     public VlcEngine()                    { this(false, 0, 0); }
     public VlcEngine(boolean heavySource) { this(heavySource, 0, 0); }
 
@@ -81,6 +85,13 @@ public class VlcEngine implements VideoEngine {
         surfaceTexture = st;
 
         ArrayList<String> options = new ArrayList<>();
+
+        // 인텐트 엑스트라 --ei vlcverbose 2 로 켜면 VLC 가 모듈 선택 과정을 다 찍는다.
+        // MediaCodec 이 왜 거부됐는지 같은 것은 이 로그가 아니면 알 길이 없다.
+        if (verbose > 0) {
+            options.add("-" + new String(new char[verbose]).replace('\0', 'v'));
+        }
+
         // 자막(SPU) 을 끈다. 이걸 켜두면 VLC 의 안드로이드 vout 이 자막 블렌딩용
         // 별도 서피스를 요구하고, 우리는 영상용 SurfaceTexture 하나만 주므로
         // "can't get Subtitles Surface" -> opaque vout 거부 -> 화면이 단색으로 나온다.

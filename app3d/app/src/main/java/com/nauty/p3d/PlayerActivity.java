@@ -159,8 +159,7 @@ public class PlayerActivity extends Activity
         setContentView(root);
 
         // 디버그용 엔진 지정. 이번 재생에만 적용하고 저장하지는 않는다.
-        // 저장하면 테스트로 한 번 EXO 를 걸었을 때 그 뒤 모든 재생이 ExoPlayer 가 되고,
-        // 이 기기에서는 그게 곧 AC3/DTS 무음이라 사용자가 원인을 알기 어렵다.
+        // 저장하면 테스트로 한 번 건 값이 그 뒤 모든 재생에 따라붙는다 (실제로 겪었다).
         String forced = getIntent().getStringExtra(EXTRA_ENGINE);
         if (forced != null) {
             try {
@@ -851,23 +850,47 @@ public class PlayerActivity extends Activity
         if (forcedKind != null) return forcedKind;
         if (engine != null) return engine.kind();
         // 엔진 선택은 파일별로만 저장한다. 전역으로 저장하면 한 파일 때문에 바꾼 선택이
-        // 다른 모든 파일에 따라붙고, 이 기기에서 ExoPlayer 는 곧 AC3/DTS 무음이다.
+        // 다른 모든 파일에 따라붙는다.
+        VideoEngine.Kind fallback = defaultKind();
         String v = getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString(KEY_ENGINE + mediaKey, VideoEngine.Kind.VLC.name());
+                .getString(KEY_ENGINE + mediaKey, fallback.name());
         try {
             return VideoEngine.Kind.valueOf(v);
         } catch (IllegalArgumentException e) {
-            return VideoEngine.Kind.VLC;
+            return fallback;
         }
+    }
+
+    /**
+     * 기본 엔진.
+     *
+     * FFmpeg 오디오 확장을 넣은 뒤로 ExoPlayer 가 기본이다. 이 기기에서 libVLC 는
+     * MediaCodec 조회 중 예외를 맞아 (`Exception occurred in
+     * MediaCodecInfo.getCapabilitiesForType`) 하드웨어 디코더를 못 찾고 **항상**
+     * 소프트웨어로 디코딩한다. 1080p 는 그래도 되지만 3840x1080 10bit HEVC 는 21fps 로
+     * 무너진다. ExoPlayer 는 같은 파일을 하드웨어로 27.6fps 에 돌리고, 예전에 무음의
+     * 원인이던 AC3/DTS 는 이제 FFmpeg 확장이 디코딩한다.
+     *
+     * 다만 ExoPlayer 가 못 여는 프로토콜이 있다. 그건 계속 libVLC 로 연다.
+     */
+    private VideoEngine.Kind defaultKind() {
+        String s = pendingUri == null ? null : pendingUri.getScheme();
+        if (s != null) {
+            s = s.toLowerCase(Locale.US);
+            // ExoPlayer 로는 못 여는 것들 (rtsp 모듈 미포함, smb/ftp/mms 미지원)
+            if (s.startsWith("rtsp") || s.startsWith("rtmp") || s.equals("smb")
+                    || s.equals("ftp") || s.equals("mms") || s.equals("udp")) {
+                return VideoEngine.Kind.VLC;
+            }
+        }
+        return VideoEngine.Kind.EXO;
     }
 
     /**
      * 엔진을 바꿔서 같은 지점부터 다시 연다.
      *
-     * 버튼을 다시 둔 이유: 3840x1080 10bit HEVC 처럼 MediaCodec 이 거부하는 소스에서는
-     * libVLC 가 소프트웨어 디코딩으로 떨어져 22fps 밖에 못 낸다. ExoPlayer 는 같은 파일을
-     * 하드웨어로 27.7fps 에 돌리지만, 이 기기엔 AC3/DTS 디코더가 없어 그런 파일은 무음이 된다.
-     * 어느 쪽이 나은지는 파일마다 다르므로 사용자가 고르게 한다.
+     * 기본은 ExoPlayer 다 ({@link #defaultKind()} 참고). libVLC 는 ExoPlayer 가 열지 못하는
+     * 컨테이너나 프로토콜을 만났을 때의 수단으로 남겨둔다.
      */
     private void switchEngine() {
         VideoEngine.Kind next = currentKind() == VideoEngine.Kind.VLC
@@ -884,8 +907,8 @@ public class PlayerActivity extends Activity
         if (at > 0) pendingResumeMs = at;
 
         Toast.makeText(this, next == VideoEngine.Kind.EXO
-                        ? "ExoPlayer — 하드웨어 디코딩(부드러움). AC3/DTS 는 무음"
-                        : "libVLC — 소리는 나오지만 4K급은 끊길 수 있음",
+                        ? "ExoPlayer — 하드웨어 디코딩 + FFmpeg 오디오"
+                        : "libVLC — 이 기기에선 항상 소프트웨어 디코딩 (4K는 끊김)",
                 Toast.LENGTH_LONG).show();
         refreshLabels();
     }
@@ -915,6 +938,10 @@ public class PlayerActivity extends Activity
 
         engine = currentKind() == VideoEngine.Kind.VLC
                 ? new VlcEngine(heavy, vw, vh) : new ExoEngine();
+        int vlcVerbose = getIntent().getIntExtra("vlcverbose", 0);
+        if (vlcVerbose > 0 && engine instanceof VlcEngine) {
+            ((VlcEngine) engine).setVerbose(vlcVerbose);
+        }
         try {
             engine.open(this, pendingUri, videoSurface, videoSurfaceTexture, this);
             engine.play();
@@ -992,7 +1019,7 @@ public class PlayerActivity extends Activity
                 // libVLC 로 바꿔도 안 된다. 이 기기는 DTS 를 디코딩은 해도
                 // 오디오 출력단에서 막혀서 결국 무음이다. 헛된 안내를 하지 않는다.
                 Toast.makeText(PlayerActivity.this,
-                        "이 기기에 없는 오디오 코덱입니다 (DTS 등).\n이 파일은 소리 없이 재생됩니다.",
+                        "재생할 수 없는 오디오 코덱입니다.\n설정에서 libVLC 로 바꿔보세요.",
                         Toast.LENGTH_LONG).show();
             }
         });

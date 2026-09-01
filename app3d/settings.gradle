@@ -7,3 +7,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "P3DPlayer"
 include ':app'
+include ':ffmpeg'

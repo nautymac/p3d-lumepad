@@ -15,6 +15,8 @@ import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 
 @OptIn(markerClass = UnstableApi.class)
@@ -28,7 +30,24 @@ public class ExoEngine implements VideoEngine {
     @Override
     public void open(Context ctx, Uri uri, Surface surface, SurfaceTexture st, Listener l) {
         listener = l;
-        player = new ExoPlayer.Builder(ctx).build();
+
+        // FFmpeg 오디오 확장을 우선한다.
+        //
+        // 이 기기의 MediaCodec 에는 AC3/E-AC3/DTS/TrueHD 디코더가 없다 (MTK 오디오 디코더는
+        // MP3/GSM/RAW/G711/WMA/ADPCM/APE/ALAC 뿐). 그래서 3D 영화 대부분이 ExoPlayer 에서
+        // 무음이었고, 그 때문에 4K HEVC 처럼 MediaCodec 이 꼭 필요한 소스에서도
+        // ExoPlayer 를 못 썼다. libffmpegJNI 가 있으면 그 코덱들을 소프트웨어로 디코딩한다.
+        //
+        // PREFER 로 두는 이유: 기기 디코더가 있는 코덱(AAC 등)까지 FFmpeg 이 가져가면
+        // 손해지만, 실제로 확장 렌더러는 자기가 지원하는 포맷만 받는다.
+        DefaultRenderersFactory renderers = new DefaultRenderersFactory(ctx)
+                .setExtensionRendererMode(
+                        DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
+        Log.i(TAG, "FFmpeg 오디오 확장: "
+                + (FfmpegLibrary.isAvailable()
+                        ? "사용 가능 (" + FfmpegLibrary.getVersion() + ")" : "없음"));
+
+        player = new ExoPlayer.Builder(ctx, renderers).build();
         player.setVideoSurface(surface);
         player.addListener(new Player.Listener() {
             @Override public void onVideoSizeChanged(VideoSize size) {
@@ -39,9 +58,8 @@ public class ExoEngine implements VideoEngine {
             }
 
             /**
-             * 이 기기에는 DTS/AC3 디코더가 없다(MediaTek 오디오 디코더: MP3/GSM/RAW/G711/
-             * WMA/ADPCM/APE/ALAC). 그런 트랙은 여기서 "지원 안 됨" 으로 잡히고 무음이 된다.
-             * 그럴 때 libVLC 로 바꾸면 자체 디코더로 재생된다.
+             * 기기 MediaCodec 에 없는 코덱(AC3/E-AC3/DTS/TrueHD)은 FFmpeg 확장이 받는다.
+             * 그래도 재생 불가로 남는 트랙이 있으면 여기서 잡힌다.
              */
             @Override public void onTracksChanged(Tracks tracks) {
                 boolean audioPlayable = false;

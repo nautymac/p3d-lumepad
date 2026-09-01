@@ -16,7 +16,8 @@ ProMa P10 (무안경 3D 태블릿) 용 통합 3D 플레이어.
 - **빠른 이동** — `◀◀` `▶▶` 짧게 30초 / 길게 5분
 - **자동 판별로 되돌리기** — 잘못 저장된 선택을 지우고 픽셀 판별을 다시 실행
 - **화면 비 선택** — 자동 / 16:9 / 2.40:1 / 1.85:1 / 4:3 / 꽉 채우기
-- **엔진 선택** — libVLC(소리) ↔ ExoPlayer(4K 하드웨어 디코딩), 파일별로 저장
+- **엔진 선택** — ExoPlayer(기본) ↔ libVLC, 파일별로 저장
+- **AC3 · E-AC3 · DTS · TrueHD 재생** — FFmpeg 오디오 확장을 직접 빌드해 넣었다
 - **3D 컨트롤 센터** — 남의 앱(YouTube 등)을 3DFV 화이트리스트에 등록/해제
 
 ## 렌더 파이프라인
@@ -73,7 +74,8 @@ C:\Users\nauty\platform-tools\adb.exe install -r app\build\outputs\apk\debug\app
 
 - 이 앱은 **스스로 인터레이스를 렌더**하므로 3DFV 화이트리스트에 등록하면 안 된다.
   등록하면 SurfaceFlinger 가 한 번 더 처리해서 깨진다. (원본 3DPlayer 도 화이트리스트에 없다)
-- **DTS 오디오는 이 기기에서 재생 불가** (엔진 무관). 아래 "DTS" 절 참고.
+- AC3/DTS 등은 **FFmpeg 오디오 확장**이 처리한다 (`ffmpeg/` 모듈). 그 모듈의 정적
+  라이브러리는 저장소에 없으므로 새로 받아 빌드하려면 [`ffmpeg/README.md`](ffmpeg/README.md) 를 먼저 볼 것.
 - APK 는 arm64-v8a 전용이다. libVLC 가 ABI 당 ~30MB 라 32비트까지 담으면 과도해진다.
 
 ## 구조
@@ -89,28 +91,67 @@ com.nauty.p3d.gl.Stereo3DView      GLSurfaceView + 드로우 루프
 com.nauty.p3d.gl.SourceRenderer    OES -> FBO (크롭 + 시어)
 com.nauty.p3d.gl.InterlaceRenderer FBO -> 화면 (frag3D + 마스크)
 com.nauty.p3d.gl.Fbo / GlUtil / BlitRenderer
+androidx.media3.decoder.ffmpeg.*      FFmpeg 오디오 확장 (media3 1.3.1 소스, ffmpeg/ 모듈)
 ```
 
 ## 재생 엔진
 
 `com.nauty.p3d.engine.VideoEngine` 뒤에 두 구현이 있다.
 
-| | libVLC (기본) | ExoPlayer |
+| | ExoPlayer (기본) | libVLC |
 |---|---|---|
-| 디코딩 | 자체 FFmpeg (+ HW 폴백) | 기기 MediaCodec |
-| 입력면 | `SurfaceTexture` (IVLCVout) | `Surface` |
+| 영상 디코딩 | 기기 MediaCodec (하드웨어) | 자체 FFmpeg — 이 기기에선 **항상 소프트웨어** |
+| 오디오 | MediaCodec + FFmpeg 확장 (AC3/E-AC3/DTS/TrueHD) | 자체 디코더 |
+| 입력면 | `Surface` | `SurfaceTexture` (IVLCVout) |
+| 프로토콜 | http/https, HLS, DASH | + RTSP, SMB, FTP, MMS |
 
-**엔진 선택 버튼이 설정 패널에 있다** (파일별로 저장, 재생 위치 유지).
-기본은 libVLC — 이 기기에 DTS/AC3 디코더가 없어 ExoPlayer 로는 3D 영화 대부분이 무음이다.
-그런데 MediaCodec 이 거부하는 소스에서는 반대가 된다: 3840x1080 10bit HEVC 는
-libVLC 가 소프트웨어로 떨어져 21fps 밖에 못 내고, ExoPlayer 는 하드웨어로 27.6fps 를 낸다.
-어느 쪽이 나은지가 파일마다 갈리므로 사용자가 고르게 두었다. 아래 "4K HEVC" 절 참고.
+**기본이 ExoPlayer 인 이유.** 이 기기에서 libVLC 는 MediaCodec 을 아예 못 쓴다:
+```
+W/VLC: libvlc decoder: Exception occurred in MediaCodecInfo.getCapabilitiesForType
+```
+코덱 목록을 훑다 예외를 맞고 하드웨어 디코더가 없다고 판단해 소프트웨어로 떨어진다
+(MTK 코덱 메타데이터가 망가져 있다 — `Unrecognized profile/level ... for video/mp4v-es`).
+1080p 는 소프트웨어로도 버티지만 3840x1080 10bit HEVC 는 21fps 로 무너진다.
+
+예전에 libVLC 를 기본으로 둔 이유는 AC3/DTS 무음 문제였는데, **FFmpeg 오디오 확장을
+직접 빌드해 넣어서 해결됐다** (`ffmpeg/` 모듈, 아래 "오디오 코덱" 절).
+
+libVLC 는 ExoPlayer 가 못 여는 컨테이너·프로토콜용으로 남는다. RTSP/SMB 같은 스킴은
+자동으로 libVLC 로 열고, 그 밖에는 설정 패널의 엔진 버튼으로 파일별로 바꿀 수 있다.
 
 선택은 **전역이 아니라 파일별로 저장**한다. 전역으로 저장하면 한 파일 때문에 바꾼 설정이
-다른 모든 파일에 따라붙어 조용히 무음이 된다 (실제로 겪었다).
+다른 모든 파일에 따라붙는다 (실제로 겪었다).
 디버깅용 인텐트 엑스트라 `--es engine EXO|VLC` 는 이번 재생에만 적용되고 저장되지 않는다.
+`--ei vlcverbose 2` 를 주면 libVLC 가 모듈 선택 과정을 전부 찍는다.
 
 3D 파이프라인은 엔진과 무관하다 — 어느 쪽이든 프레임이 같은 OES 텍스처로 들어온다.
+
+## 오디오 코덱 — FFmpeg 확장 (해결됨)
+
+**증상: AC3·DTS 트랙이 무음.** 기기 MediaCodec 에 그 디코더가 없다.
+```
+/vendor/etc/media_codecs_mediatek_audio.xml 의 오디오 디코더 전부:
+  MP3, GSM, RAW, G711, WMA, ADPCM, APE, ALAC     ← AC3/E-AC3/DTS/TrueHD 없음
+```
+
+해결: media3 의 FFmpeg 오디오 확장을 직접 빌드해 넣었다 (`ffmpeg/` 모듈).
+`androidx.media3:media3-decoder-ffmpeg` 는 Maven 에 없고 NDK 로 빌드해야 한다.
+빌드 절차는 [`ffmpeg/README.md`](ffmpeg/README.md).
+
+기기에 없는 디코더만 켰다 (`ac3 eac3 dca truehd mlp`). APK 증가분은 **0.55MB**.
+
+측정 (기본 엔진, 재생 중 AudioTrack 활성 여부로 소리 확인):
+
+| 파일 | 오디오 | fps | 소리 |
+|---|---|---|---|
+| Coraline 3840x1080 10bit HEVC | AC3 5.1 | 28.1 | O |
+| Edge of Tomorrow 1080p | DTS-HD MA 7.1 | 27.3 | O |
+| Spider-Man 1080p | DTS | 27.7 | O |
+| The Boys S03E01 1080p | E-AC3 | 27.8 | O |
+
+**이전 문서의 "DTS 는 이 기기에서 불가" 는 틀린 결론이었다.** 그때는 libVLC 의 오디오 출력
+모듈이 실패하는 것만 보고 기기 한계로 단정했는데, 디코딩을 FFmpeg 확장이 하고 출력을
+ExoPlayer 의 AudioTrack 이 맡으니 그대로 재생된다.
 
 ## 알려진 버그와 수정 이력
 
@@ -164,11 +205,11 @@ adb shell am start -n com.nauty.p3d/.PlayerActivity \
 ```
 `engine` 엑스트라는 `EXO` 또는 `VLC`. 지정하면 저장된 선택을 덮어쓴다.
 
-## DTS 오디오 — 이 기기에서는 불가 (조사 종료)
+## DTS 오디오 — 한때 "불가" 로 닫았던 건 (해결됨)
 
-`Edge.of.Tomorrow...DTS-HD.MA.7.1.mkv` 처럼 오디오가 DTS 단독인 파일은 **엔진과 무관하게 무음**이다.
+기록으로 남긴다. **결론이 틀렸었다.**
 
-근거:
+당시 근거는 이랬다:
 ```
 /vendor/etc/media_codecs_mediatek_audio.xml 의 오디오 디코더 전부:
   MP3, GSM, RAW, G711, WMA, ADPCM, APE, ALAC     ← DTS/AC3/E-AC3/TrueHD 없음
@@ -178,14 +219,15 @@ libVLC:     트랙 선택까지는 됨. 그러나
             E/VLC: audio output: module not functional
             E/VLC: decoder: failed to create audio output
 ```
+여기서 "기기에 디코더가 없다 = 방법이 없다" 로 넘어간 것이 비약이었다.
+**디코더는 앱이 들고 오면 된다.** FFmpeg 오디오 확장을 넣자 그대로 재생됐다
+(`audio/vnd.dts ch=6 [재생가능]`, 27.3fps, AudioTrack 활성).
 
-시도했다가 되돌린 것들 (전부 효과 없었고, `--aout`/`--stereo-mode` 는 일반 파일 볼륨만 낮췄다):
+libVLC 쪽에서 시도했다가 되돌린 것들은 여전히 효과가 없다. 그건 출력 모듈 문제였고,
+확장을 넣은 지금은 ExoPlayer 의 AudioTrack 경로를 쓰므로 해당되지 않는다:
 - `--aout=opensles_android`
 - `--stereo-mode=1`
-- `MediaPlayer.setAudioOutputDevice("stereo")`
-
-libVLC 를 넣은 값어치는 남아 있다 (컨테이너/코덱 범위, 네트워크 프로토콜). 다만
-**DTS 해결책은 아니므로 그렇게 안내하지 말 것.** 사용자 판단으로 조사 종료.
+- `MediaPlayer.setAudioOutputDevice("stereo")`   ← 일반 파일 볼륨만 낮아졌다
 
 ## 자막 렌더링 버그 (수정됨)
 
@@ -391,8 +433,11 @@ E/VLC    : libvlc decoder: more than 5 seconds of late video -> dropping frame (
 
 | | fps | 소리 |
 |---|---|---|
-| libVLC (소프트웨어) | 19.8 → 21 (튜닝 후) | **나온다** (AC3 자체 디코딩) |
-| ExoPlayer (하드웨어) | **27.6** | 안 난다 (기기에 AC3 디코더 없음) |
+| libVLC (소프트웨어) | 19.8 -> 21 (튜닝 후) | 나온다 (AC3 자체 디코딩) |
+| ExoPlayer (하드웨어) | **27.6** | 처음엔 안 났다. FFmpeg 확장으로 **해결** |
+
+원인은 libVLC 가 이 기기에서 MediaCodec 조회 중 예외를 맞는 것이다 ("재생 엔진" 절 참고).
+스트림 문제가 아니라 기기 코덱 메타데이터 문제라 소스를 바꿔도 libVLC 는 늘 소프트웨어다.
 
 **`setHWDecoderEnabled(true, true)` 로는 못 고친다.** libVLC 3.6.0 의 바이트코드를 보면
 `force` 인자는 기기 판별이 `UNKNOWN` 일 때만 쓰이고, 만들어지는 옵션은 언제나
@@ -438,8 +483,8 @@ E/VLC    : libvlc decoder: more than 5 seconds of late video -> dropping frame (
 `자동 → 16:9 → 2.40:1 → 1.85:1 → 4:3 → 꽉 채우기` 순으로 순환하고 저장된다.
 `꽉 채우기` 는 화면 비율에 맞춰 늘려 레터박스를 없앤다.
 
-### 근본 해결
+### 결론
 
-이 기기의 하드웨어 디코더는 3840x2176 까지 지원한다. PC 에서 8bit 로 다시 인코딩하면
-libVLC 에서도 하드웨어로 돌아가 **소리와 부드러움을 둘 다** 얻는다.
-`ffmpeg -i in.mkv -c:v libx265 -pix_fmt yuv420p -c:a copy out.mkv`
+재인코딩은 필요 없어졌다. 기본 엔진을 ExoPlayer 로 돌리고 오디오는 FFmpeg 확장이 맡는다.
+`--avcodec-skiploopfilter 4` 같은 libVLC 소프트웨어 튜닝은 libVLC 를 쓰기로 한 경우를 위해
+남겨둔다 (19.8 → 21fps).

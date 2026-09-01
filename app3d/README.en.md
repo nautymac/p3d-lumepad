@@ -18,7 +18,8 @@ It reimplements the render pipeline recovered by reverse-engineering the stock
 - **Skip** — `◀◀` `▶▶`, 30 s on tap / 5 min on long-press
 - **Revert to auto-detect** — clears a wrongly saved choice and re-runs pixel detection
 - **Aspect ratio** — auto / 16:9 / 2.40:1 / 1.85:1 / 4:3 / fill
-- **Engine choice** — libVLC (audio) vs ExoPlayer (4K hardware decoding), saved per file
+- **Engine choice** — ExoPlayer (default) vs libVLC, saved per file
+- **AC3 / E-AC3 / DTS / TrueHD** — via a self-built FFmpeg audio extension
 - **3D Control Center** — register/unregister other apps (YouTube etc.) in the 3DFV whitelist
 
 ## Render pipeline
@@ -82,7 +83,8 @@ the device at build time instead.
 - This app **renders the interlacing itself**, so it must NOT be added to the 3DFV
   whitelist. If it is, SurfaceFlinger processes it a second time and the image breaks.
   (The stock 3DPlayer is not in the whitelist either.)
-- **DTS audio cannot play on this device**, regardless of engine. See the DTS section below.
+- AC3/DTS and friends are handled by the **FFmpeg audio extension** (`ffmpeg/` module). Its
+  static libraries are not in the repo — see [`ffmpeg/README.md`](ffmpeg/README.md) to rebuild them.
 - The APK is arm64-v8a only. libVLC is ~30MB per ABI, so including 32-bit would bloat it.
 
 ## Structure
@@ -100,6 +102,7 @@ com.nauty.p3d.gl.SourceRenderer    OES -> FBO (crop + shear)
 com.nauty.p3d.gl.InterlaceRenderer FBO -> screen (frag3D + mask)
 com.nauty.p3d.gl.SubtitleRenderer  subtitle bitmap -> both eye views
 com.nauty.p3d.gl.Fbo / GlUtil / BlitRenderer
+androidx.media3.decoder.ffmpeg.*      FFmpeg audio extension (media3 1.3.1 source, ffmpeg/ module)
 com.nauty.p3d.subtitle.Subtitles   SRT / SMI parsing + charset detection
 com.nauty.p3d.subtitle.SubtitleBitmap  text -> bitmap
 ```
@@ -108,22 +111,62 @@ com.nauty.p3d.subtitle.SubtitleBitmap  text -> bitmap
 
 Two implementations sit behind `com.nauty.p3d.engine.VideoEngine`.
 
-| | libVLC (default) | ExoPlayer |
+| | ExoPlayer (default) | libVLC |
 |---|---|---|
-| Decoding | bundled FFmpeg (+ HW fallback) | device MediaCodec |
-| Input surface | `SurfaceTexture` (IVLCVout) | `Surface` |
+| Video decoding | device MediaCodec (hardware) | bundled FFmpeg — **always software here** |
+| Audio | MediaCodec + FFmpeg extension (AC3/E-AC3/DTS/TrueHD) | its own decoders |
+| Input surface | `Surface` | `SurfaceTexture` (IVLCVout) |
+| Protocols | http/https, HLS, DASH | + RTSP, SMB, FTP, MMS |
 
-**The settings panel has an engine button** (saved per file, playback position preserved).
-libVLC is the default — this device has no DTS/AC3 decoder, so under ExoPlayer most 3D
-movies play silent. But for sources MediaCodec refuses, it flips: a 3840x1080 10-bit HEVC
-file drops libVLC to software decoding and 21 fps, while ExoPlayer decodes it in hardware at
-27.6 fps. Which one wins depends on the file, so the choice is the user's. See "4K HEVC" below.
+**Why ExoPlayer is the default.** On this device libVLC cannot use MediaCodec at all:
+```
+W/VLC: libvlc decoder: Exception occurred in MediaCodecInfo.getCapabilitiesForType
+```
+It throws while enumerating codecs, concludes there is no hardware decoder, and falls back to
+software (the MTK codec metadata is malformed — `Unrecognized profile/level ... for
+video/mp4v-es`). 1080p survives software decoding; 3840x1080 10-bit HEVC collapses to 21 fps.
+
+libVLC used to be the default because of the AC3/DTS silence, and **that was fixed by building
+the FFmpeg audio extension into the app** (the `ffmpeg/` module, see "Audio codecs" below).
+
+libVLC remains for containers and protocols ExoPlayer cannot open. Schemes like RTSP/SMB open
+with libVLC automatically; otherwise the settings panel's engine button switches per file.
 
 The choice is stored **per file, not globally**. Storing it globally means a switch made for
-one file follows every other file and silently kills their audio (this actually happened).
+one file follows every other file (this actually happened).
 The debug intent extra `--es engine EXO|VLC` applies to that playback only and is not saved.
+`--ei vlcverbose 2` makes libVLC log its whole module-selection process.
 
 The 3D pipeline is engine-agnostic — either way frames arrive in the same OES texture.
+
+## Audio codecs — the FFmpeg extension (fixed)
+
+**Symptom: AC3 and DTS tracks are silent.** The device's MediaCodec has no such decoders.
+```
+Every audio decoder in /vendor/etc/media_codecs_mediatek_audio.xml:
+  MP3, GSM, RAW, G711, WMA, ADPCM, APE, ALAC     ← no AC3/E-AC3/DTS/TrueHD
+```
+
+Fix: build media3's FFmpeg audio extension into the app (the `ffmpeg/` module).
+`androidx.media3:media3-decoder-ffmpeg` is not published to Maven and must be built with the
+NDK; the procedure is in [`ffmpeg/README.md`](ffmpeg/README.md).
+
+Only the decoders the device lacks are enabled (`ac3 eac3 dca truehd mlp`). The APK grows by
+**0.55 MB**.
+
+Measured (default engine; audio confirmed by an active AudioTrack during playback):
+
+| File | Audio | fps | Sound |
+|---|---|---|---|
+| Coraline 3840x1080 10-bit HEVC | AC3 5.1 | 28.1 | yes |
+| Edge of Tomorrow 1080p | DTS-HD MA 7.1 | 27.3 | yes |
+| Spider-Man 1080p | DTS | 27.7 | yes |
+| The Boys S03E01 1080p | E-AC3 | 27.8 | yes |
+
+**The earlier "DTS is impossible on this device" conclusion was wrong.** It watched libVLC's
+audio output module fail and generalised that to a device limit. With the decoding done by the
+FFmpeg extension and the output by ExoPlayer's AudioTrack, it simply plays.
+
 
 ## Known bugs and fixes
 
@@ -184,14 +227,13 @@ adb shell am start -n com.nauty.p3d/.PlayerActivity \
 ```
 The `engine` extra takes `EXO` or `VLC`. It overrides the saved choice.
 
-## DTS audio — impossible on this device (investigation closed)
+## DTS audio — the case once closed as "impossible" (fixed)
 
-Files whose only audio track is DTS, such as `Edge.of.Tomorrow...DTS-HD.MA.7.1.mkv`,
-play **silently regardless of engine**.
+Kept for the record. **The conclusion was wrong.**
 
-Evidence:
+The evidence at the time:
 ```
-All audio decoders in /vendor/etc/media_codecs_mediatek_audio.xml:
+Every audio decoder in /vendor/etc/media_codecs_mediatek_audio.xml:
   MP3, GSM, RAW, G711, WMA, ADPCM, APE, ALAC     ← no DTS/AC3/E-AC3/TrueHD
 
 ExoPlayer:  audio/vnd.dts ch=6  [no decoder]
@@ -199,15 +241,15 @@ libVLC:     selects the track, but then
             E/VLC: audio output: module not functional
             E/VLC: decoder: failed to create audio output
 ```
+The leap was going from "the device has no decoder" to "there is no way".
+**The app can bring its own decoder.** With the FFmpeg audio extension it simply plays
+(`audio/vnd.dts ch=6 [재생가능]`, 27.3 fps, AudioTrack active).
 
-Tried and reverted (none worked, and `--aout`/`--stereo-mode` only lowered the volume of
-normal files):
+The libVLC-side attempts still do nothing; those were an output-module problem, and the
+extension path uses ExoPlayer's AudioTrack instead:
 - `--aout=opensles_android`
 - `--stereo-mode=1`
-- `MediaPlayer.setAudioOutputDevice("stereo")`
-
-libVLC still earns its place (container/codec coverage, network protocols), but it is
-**not a DTS workaround, so do not present it as one.** Closed at the user's request.
+- `MediaPlayer.setAudioOutputDevice("stereo")`   ← only lowered the volume of normal files
 
 ## Subtitle rendering bug (fixed)
 
@@ -428,8 +470,11 @@ the fallback kicked in. The same file opened with ExoPlayer (MediaCodec only) de
 
 | | fps | audio |
 |---|---|---|
-| libVLC (software) | 19.8 → 21 (after tuning) | **works** (decodes AC3 itself) |
-| ExoPlayer (hardware) | **27.6** | silent (no AC3 decoder on this device) |
+| libVLC (software) | 19.8 -> 21 (after tuning) | works (decodes AC3 itself) |
+| ExoPlayer (hardware) | **27.6** | was silent; **fixed** by the FFmpeg extension |
+
+The cause is libVLC throwing while probing MediaCodec on this device (see "Playback engines").
+It is the device codec metadata, not the stream, so no source change makes libVLC use hardware.
 
 **`setHWDecoderEnabled(true, true)` cannot fix this.** Disassembling libVLC 3.6.0 shows the
 `force` argument only matters when device detection returns `UNKNOWN`, and the option it builds
@@ -477,8 +522,8 @@ Some source will still get it wrong, so the settings panel has an `화면 비` (
 cycles `auto → 16:9 → 2.40:1 → 1.85:1 → 4:3 → fill` and the choice is saved. `fill` stretches to
 the screen's own ratio, removing the letterbox.
 
-### The real fix
+### Conclusion
 
-This device's hardware decoder handles up to 3840x2176. Re-encoding to 8-bit on a PC makes libVLC
-use hardware too, giving **both** sound and smooth playback:
-`ffmpeg -i in.mkv -c:v libx265 -pix_fmt yuv420p -c:a copy out.mkv`
+Re-encoding is no longer necessary. The default engine is ExoPlayer and the FFmpeg extension
+handles the audio. The libVLC software tuning (`--avcodec-skiploopfilter 4` and friends) stays
+for when libVLC is chosen anyway (19.8 → 21 fps).
