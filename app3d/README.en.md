@@ -342,6 +342,86 @@ If 3D looks wrong, read this line first.
 Controlled subtitle experiment: interlace ratio with vs. without subtitles was `4.26 vs 4.26`
 — subtitles have no effect on 3D.
 
+## How to use it — putting other apps on the 3D panel (registering / re-registering)
+
+Apps that do not render 3D themselves — YouTube, Moonlight — need to be registered in the 3DFV
+whitelist to show on the panel in 3D. The app's `3D 컨트롤 센터` (3D Control Center) does that.
+
+### Registering
+
+1. Press **`3D 컨트롤 센터`** on the P3D Player home screen.
+2. Pick the target app from the list.
+3. Pick the source layout — usually **SBS (half)**; use full if the whole frame is one L/R pair.
+4. Press register. If the app has several activities they are all registered (streaming and game
+   apps play in a different activity from their launcher one, so registering all of them is the
+   reliable choice).
+5. Press **`지금 적용`** (apply now) to restart 3DFV. Skipping this step means nothing takes effect.
+6. Launch the target app **fullscreen in landscape**; a `›` handle appears on the left edge.
+   Tapping it turns 3D on and exposes the depth control.
+
+To undo, use unregister in the same place, or `기본값 복원` (restore defaults) for everything.
+
+### Cautions
+
+- **Never register P3D Player itself.** It renders its own interlacing, so SurfaceFlinger would
+  process it a second time and the image breaks. (The stock 3DPlayer is not in the whitelist either.)
+- If the overlay stops appearing, the **activity name has usually changed** — common after an app
+  update. It happened with YouTube 20.26.40, whose stock entry no longer matched. Registering that
+  app again from the Control Center rewrites it with the current activity name.
+- The registrations live in `/sdcard/K3DX/config/white_list2.config`, not in the app. They
+  **survive updating P3D Player, and even uninstalling and reinstalling it.**
+
+### Known-good entries
+
+```
+10@com.google.android.apps.youtube.app.watchwhile.WatchWhileActivity
+10@com.google.android.youtube.app.honeycomb.Shell$HomeActivity   ← YouTube 20.x
+10@com.limelight.Game
+20@com.limelight.PcView
+20@com.limelight.AppView
+```
+The format is `<windowType><sourceType>@<activity class>`. windowType `1` (sv) suits apps drawing
+through a SurfaceView such as streaming clients, `2` is either, `3` is the first layer.
+
+## What a factory reset actually costs
+
+A factory reset wipes `/data` and `/sdcard`. 3DFV, Sight3D and 3DPlayer are system apps under
+`/vendor`, so they **survive**. Only this has to be redone:
+
+| Item | After a reset | How to restore |
+|---|---|---|
+| P3D Player | gone | reinstall the APK |
+| Storage permission | revoked | grant it on first run |
+| Whitelist (YouTube/Moonlight registrations) | gone | re-register in the 3D Control Center (above) |
+| Resume positions, per-file layouts | gone | not recoverable (they rebuild themselves) |
+| `/sdcard/3DKanKan/matrix` | gone | **nothing to do** — see below |
+
+### The matrix file does not need backing up (measured)
+
+`/sdcard/3DKanKan/matrix` (8,192,000 bytes = 2560x1600x2) is the lenticular mask. It looks like
+per-device calibration you must not lose, but **it is only a cache.**
+
+Moving the file away, freezing the same frame and comparing pixel by pixel against the original:
+```
+mean diff 0.0000  max diff 0  (1,024,000 samples)
+```
+Bit-identical. `libholography.so` synthesises the same mask when the file is absent (its imports
+include `open`/`read`/`write`, and the `readBitmapFile ... read matrix 8192000` log yields the same
+content either way).
+
+So after a reset, **reinstalling P3D Player is enough for 3D to work.**
+
+## Will it work on another device
+
+| Target | Works? | Why |
+|---|---|---|
+| Another ProMa P10 | **yes** | same panel, same 3DFV. Install the APK, register the whitelist, done |
+| A different glasses-free 3D device | **almost certainly not** | a different lenticular pitch/slant makes the mask `libholography` generates wrong, and there is no `com.wztech.service3d` |
+| An ordinary Android device | as a player only | 3D output is meaningless there; 2D output, subtitles and SBS/TB extraction still work |
+
+The APK is **arm64-v8a only, minSdk 21**, so it will not install on 32-bit devices.
+The other-3D-device row is untested — there is no such device here.
+
 ## The 3DFV overlay — putting other apps on the 3D panel
 
 The `›` handle on the left edge in Chrome is 3DFV's FloatView. Tapping it offers
