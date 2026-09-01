@@ -49,6 +49,23 @@ t.x += uShearTop - vTex.y * uShearSlope;   // stock: 0.004 - y*screenHeight*0.00
 Only the right eye is sheared; the left eye stays untouched, so one eye is always sharp.
 The stock app hardcodes the constants; here the `Depth` slider scales them.
 
+**The pivot is moved to the middle of the screen, unlike the stock app.** The stock constant
+pair puts the zero-parallax line at `0.004/0.031232 = v 0.128` — effectively the very top of the
+frame. Parallax then piles up toward the bottom only: the slider does nothing to the upper part,
+while at the bottom one eye is displaced ~70 px at depth 1 (over 200 px at the slider's maximum
+of 3.0). Past the fusion limit that reads as distortion, not depth. Keeping the slope and moving
+only the pivot preserves the depth gradient while halving the maximum displacement of one eye.
+
+Freezing the same frame (`--ei freezems`) and comparing before and after, mean per-band difference:
+```
+screen position   before   after
+top 10-20%          2.05    11.48    <- the top starts responding to the slider
+20-30%             19.34    31.79
+middle 40-60%      34.12    12.65    <- what used to be the maximum is now the zero line
+lower 60-70%       28.29    18.32
+```
+The shear only applies to 2D sources, so genuine 3D (SBS/TB) material is unaffected.
+
 ## Native dependency
 
 Just `libholography.so` (the arm64-v8a / armeabi-v7a build from the 3DPlayer APK).
