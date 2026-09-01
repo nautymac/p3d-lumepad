@@ -345,13 +345,28 @@ public class Stereo3DView extends GLSurfaceView {
                 shearTop   = shearSlope * SHEAR_PIVOT;
             }
 
-            // 좌안: 원본 그대로
-            GLES20.glViewport(dxL, dy, dw, dh);
-            src.draw(oesTex, stMatrix, uvL[0], uvL[1], uvL[2], uvL[3], 0f, 0f, bottomCut);
+            // 시어를 두 눈에 절반씩 반대로 나눈다.
+            //
+            // 원본 3DPlayer 는 좌안을 그대로 두고 우안에만 시어를 걸었다. 그러면 시차는
+            // 맞지만 **융합된 상(cyclopean image)이 두 눈 위치의 평균**이라, 곧은 세로선이
+            // s(v)/2 만큼 기울어져 보인다 — 시차 강도를 올릴수록 기둥이 옆으로 누워 보이는
+            // 원인이 이것이다 (depth=3 이면 화면 높이에 걸쳐 120px 쯤 기운다).
+            //
+            // 좌안 -s(v)/2, 우안 +s(v)/2 로 나누면
+            //   · 시차(우-좌)는 s(v) 로 그대로 — 입체감은 동일하고
+            //   · 평균은 0 이라 세로선이 곧게 선다
+            //   · 눈당 표본 이동량도 절반이라 가장자리 뭉개짐이 준다
+            float halfTop   = shearTop   * 0.5f;
+            float halfSlope = shearSlope * 0.5f;
 
-            // 우안: 2D 소스면 시어 적용
+            GLES20.glViewport(dxL, dy, dw, dh);
+            src.draw(oesTex, stMatrix, uvL[0], uvL[1], uvL[2], uvL[3],
+                    -halfTop, -halfSlope, bottomCut);
+
+            // 우안: 2D 소스면 반대 방향으로 나머지 절반
             GLES20.glViewport(dxR, dy, dw, dh);
-            src.draw(oesTex, stMatrix, uvR[0], uvR[1], uvR[2], uvR[3], shearTop, shearSlope, bottomCut);
+            src.draw(oesTex, stMatrix, uvR[0], uvR[1], uvR[2], uvR[3],
+                    halfTop, halfSlope, bottomCut);
 
             // 자막은 좌/우 뷰에 각각 그리되 서로 반대로 밀어 화면 앞쪽에 뜨게 한다.
             // (음의 시차: 좌안은 오른쪽으로, 우안은 왼쪽으로)

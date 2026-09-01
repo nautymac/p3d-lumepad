@@ -1000,6 +1000,16 @@ public class PlayerActivity extends Activity
         int depthPct = getIntent().getIntExtra("depth", -1);
         if (depthPct >= 0) glView.setDepth(depthPct / 100f);
 
+        // 디버그: --es output THREE_D|TWO_D|SBS_DEBUG.
+        // SBS_DEBUG 는 인터레이스 전 FBO 를 좌우로 그대로 보여준다. 두 눈이 분리돼 나오므로
+        // 눈별 시어량을 따로 잴 수 있다 — 인터레이스된 화면으로는 크로스토크 때문에 못 잰다.
+        String outMode = getIntent().getStringExtra("output");
+        if (outMode != null) {
+            try {
+                glView.setOutput(Stereo3DView.Output.valueOf(outMode.toUpperCase(Locale.US)));
+            } catch (IllegalArgumentException ignored) { }
+        }
+
         // 디버그: --ei freezems N 이면 그 지점으로 이동해 정지시킨다.
         // 마스크 반응을 측정하려면 매 캡처가 같은 프레임이어야 하기 때문.
         final int freezeMs = getIntent().getIntExtra("freezems", 0);

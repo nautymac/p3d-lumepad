@@ -28,7 +28,7 @@ It reimplements the render pipeline recovered by reverse-engineering the stock
 ExoPlayer ─▶ SurfaceTexture(OES)
                    │
                    ├── left-eye crop  ──▶ FBO left half
-                   └── right-eye crop ──▶ FBO right half   (2D source: shear applied here only)
+                   └── right-eye crop ──▶ FBO right half   (2D source: shear split, half to each eye)
                                           │
                             frag3D.sh + libholography mask
                                           │
@@ -46,7 +46,14 @@ ground-plane assumption that the bottom of the frame is near and the top is far.
 t.x += uShearTop - vTex.y * uShearSlope;   // stock: 0.004 - y*screenHeight*0.0000122
 ```
 
-Only the right eye is sheared; the left eye stays untouched, so one eye is always sharp.
+**The shear is split evenly and oppositely between the two eyes.** The stock 3DPlayer left the
+left eye untouched and sheared only the right one. The disparity is then correct, but the fused
+**cyclopean image sits at the average of the two monocular positions**, so a straight vertical
+line leans by `s(v)/2` — this is why a pillar appears to tip sideways as the strength goes up.
+Splitting it as `-s(v)/2` for the left eye and `+s(v)/2` for the right keeps the disparity
+(right − left) identical while the average becomes zero, so vertical lines stay vertical. It also
+halves how far each eye resamples, which reduces smearing at the edges.
+
 The stock app hardcodes the constants; here the `Depth` slider scales them.
 
 **The pivot is moved to the middle of the screen, unlike the stock app.** The stock constant
@@ -64,6 +71,23 @@ top 10-20%          2.05    11.48    <- the top starts responding to the slider
 middle 40-60%      34.12    12.65    <- what used to be the maximum is now the zero line
 lower 60-70%       28.29    18.32
 ```
+
+Per-eye shear is measured directly by dumping the pre-interlace FBO side by side with
+`--es output SBS_DEBUG` — on the interlaced screen the eyes cannot be separated because of
+crosstalk. Measured at depth 300, in FBO pixels (1280 per eye; double that on screen):
+```
+band        left    right |  disparity   lean
+12-25%       +20     -20  |      -40      0.0
+25-37%       +12     -12  |      -24      0.0
+37-50%        +4      -4  |       -8      0.0
+50-62%        -4      +4  |       +8      0.0
+62-75%       -12     +12  |      +24      0.0
+75-87%       -20     +20  |      +40      0.0
+```
+The eyes move exactly opposite, so the lean is 0 in every band while the disparity ramps from
+−40 to +40 and changes sign at the middle. Shearing only the right eye, as the stock app does,
+leaves the left at 0, so half the disparity survives as lean — up to 40 px on screen at each
+extreme, 80 px top to bottom. That was the tipping pillar.
 The shear only applies to 2D sources, so genuine 3D (SBS/TB) material is unaffected.
 
 ## Native dependency
