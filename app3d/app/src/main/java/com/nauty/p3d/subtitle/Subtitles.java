@@ -208,13 +208,14 @@ public final class Subtitles {
     static String stripTags(String s) {
         String r = s.replaceAll("(?i)<\\s*br\\s*/?\\s*>", "\n");
         r = r.replaceAll("<[^>]*>", "");
-        r = r.replace("&nbsp;", " ")
-             .replace("&NBSP;", " ")
-             .replace("&amp;", "&")
-             .replace("&lt;", "<")
-             .replace("&gt;", ">")
-             .replace("&quot;", "\"")
-             .replace("&apos;", "'");
+        // 세미콜론이 빠진 엔티티가 실제로 나온다 ("&nbsp you'd see a sky..." 처럼
+        // 화면에 그대로 찍혔다). 그래서 `;` 를 선택으로 두고 대소문자도 무시한다.
+        r = r.replaceAll("(?i)&nbsp;?",  " ")
+             .replaceAll("(?i)&lt;?",    "<")
+             .replaceAll("(?i)&gt;?",    ">")
+             .replaceAll("(?i)&quot;?",  "\"")
+             .replaceAll("(?i)&apos;?",  "'")
+             .replaceAll("(?i)&amp;?",   "&");   // &amp 는 마지막에 — 앞의 것들을 되살리지 않도록
         // 줄 단위 정리
         String[] lines = r.split("\n");
         StringBuilder sb = new StringBuilder();

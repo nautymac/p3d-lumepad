@@ -136,17 +136,25 @@ public class PlayerActivity extends Activity
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         // 재생바는 아래, 설정 패널은 오른쪽 — 서로 겹치지 않는다.
-        root.addView(buildBottomBar(), new FrameLayout.LayoutParams(
+        // 둘 다 네비게이션 바 높이만큼 띄운다 (navBarHeight() 주석 참고).
+        int navH = navBarHeight();
+
+        View bar = buildBottomBar();
+        FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
+        barLp.bottomMargin = navH;
+        root.addView(bar, barLp);
 
         settingsPanel = buildSettingsPanel();
         settingsPanel.setVisibility(View.GONE);
+        settingsPanel.setPadding(0, 0, 0, navH);
         root.addView(settingsPanel, new FrameLayout.LayoutParams(
                 dp(300), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END));
 
         glView.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
+                hideSystemUi();      // 네비게이션 바가 올라와 있으면 다시 내린다
                 if (settingsPanel.getVisibility() == View.VISIBLE) {
                     settingsPanel.setVisibility(View.GONE);
                 } else {
@@ -804,6 +812,29 @@ public class PlayerActivity extends Activity
      * LAYOUT_HIDE_NAVIGATION 과 LAYOUT_FULLSCREEN 을 넣어 레이아웃을 바 아래까지
      * 확장해야 GL 표면이 2560x1600 이 되어 마스크와 일치한다.
      */
+    /**
+     * 네비게이션 바가 차지하는 높이.
+     *
+     * hideSystemUi() 가 LAYOUT_HIDE_NAVIGATION 을 걸어서 레이아웃이 화면 끝(1600px)까지
+     * 뻗는다 — 자막 이음매를 없애려면 GL 표면이 패널 전체를 덮어야 하기 때문이다.
+     * 그런데 그 상태에서 네비게이션 바가 다시 올라오면 화면 맨 아래에 있는 재생바가
+     * 그 밑에 깔려 보이지도, 눌리지도 않는다. 그래서 재생바만 이만큼 띄워둔다.
+     */
+    private int navBarHeight() {
+        int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
+    }
+
+    /**
+     * 몰입 모드는 포커스를 잃으면 풀린다 (다이얼로그, 알림 내리기, 앱 전환 등).
+     * 그대로 두면 네비게이션 바가 올라온 채로 남는다. 돌아올 때마다 다시 건다.
+     */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) hideSystemUi();
+    }
+
     private void hideSystemUi() {
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN
