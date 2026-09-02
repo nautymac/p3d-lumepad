@@ -87,6 +87,107 @@ public class MainActivity extends Activity {
         if (req == REQ_PERM) loadVideos();
     }
 
+    /**
+     * 돌아올 때마다 다시 읽는다. 다른 앱으로 영상을 받아온 직후에도 목록에 나와야 한다.
+     */
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (Build.VERSION.SDK_INT >= 23
+                && checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
+                   != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        loadVideos();
+        scanUnindexed();
+    }
+
+    /**
+     * MediaStore 가 모르는 영상 파일을 찾아 미디어 스캐너에 넘긴다.
+     *
+     * 목록은 MediaStore 를 조회해서 만드는데, 파일을 만든 앱이 스캔을 요청하지 않으면
+     * 그 파일은 색인되지 않아 목록에 나오지 않는다. 실제로 Download/Seal/ 의 두 mkv 중
+     * 하나만 색인돼 있었다 — 받아온 영상이 안 보이던 이유가 이것이다.
+     *
+     * 색인만 시켜주면 그 뒤로는 평소 경로(content://)로 열리므로, 자막 탐색이나
+     * 이어보기 키 같은 나머지 동작은 손댈 필요가 없다.
+     */
+    private void scanUnindexed() {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final List<String> missing = new ArrayList<>();
+                try {
+                    java.util.Set<String> known = new java.util.HashSet<>();
+                    Cursor c = getContentResolver().query(
+                            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                            new String[]{MediaStore.Video.Media.DATA}, null, null, null);
+                    if (c != null) {
+                        while (c.moveToNext()) {
+                            String d = c.getString(0);
+                            if (d != null) known.add(d);
+                        }
+                        c.close();
+                    }
+                    collect(android.os.Environment.getExternalStorageDirectory(),
+                            0, known, missing);
+                } catch (Throwable t) {
+                    return;   // 색인은 보조 기능이다. 실패해도 조용히 넘어간다
+                }
+                if (missing.isEmpty()) return;
+
+                final String[] paths = missing.toArray(new String[0]);
+                final int[] done = {0};
+                android.media.MediaScannerConnection.scanFile(
+                        MainActivity.this, paths, null,
+                        new android.media.MediaScannerConnection.OnScanCompletedListener() {
+                            @Override public void onScanCompleted(String path, Uri uri) {
+                                synchronized (done) {
+                                    if (++done[0] < paths.length) return;
+                                }
+                                runOnUiThread(new Runnable() {
+                                    @Override public void run() {
+                                        loadVideos();
+                                        Toast.makeText(MainActivity.this,
+                                                "새 영상 " + paths.length + "개를 목록에 넣었습니다",
+                                                Toast.LENGTH_SHORT).show();
+                                    }
+                                });
+                            }
+                        });
+            }
+        }).start();
+    }
+
+    /** 영상 확장자를 가진 파일 중 MediaStore 에 없는 것을 모은다. */
+    private void collect(java.io.File dir, int depth,
+                         java.util.Set<String> known, List<String> out) {
+        if (dir == null || depth > 5 || out.size() > 500) return;
+        // Android/ 밑은 앱 전용 데이터라 볼 이유가 없고, .nomedia 는 사용자가 숨긴 것이다.
+        if (depth > 0 && ("Android".equals(dir.getName())
+                || new java.io.File(dir, ".nomedia").exists())) return;
+
+        java.io.File[] fs = dir.listFiles();
+        if (fs == null) return;
+        for (java.io.File f : fs) {
+            if (f.isDirectory()) {
+                collect(f, depth + 1, known, out);
+            } else if (isVideo(f.getName()) && !known.contains(f.getAbsolutePath())) {
+                out.add(f.getAbsolutePath());
+            }
+        }
+    }
+
+    private static final String[] VIDEO_EXT = {
+            ".mp4", ".mkv", ".avi", ".ts", ".m2ts", ".mov", ".webm",
+            ".wmv", ".flv", ".m4v", ".mpg", ".mpeg", ".3gp", ".divx", ".rmvb", ".vob"
+    };
+
+    private static boolean isVideo(String name) {
+        String n = name.toLowerCase(java.util.Locale.US);
+        for (String e : VIDEO_EXT) if (n.endsWith(e)) return true;
+        return false;
+    }
+
     private void addButton(LinearLayout parent, String text, View.OnClickListener l) {
         Button b = new Button(this);
         b.setText(text);

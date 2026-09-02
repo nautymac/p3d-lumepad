@@ -372,6 +372,32 @@ The top of the settings panel always shows where the current layout came from.
 
 If 3D looks wrong, read this line first.
 
+## Videos missing from the list (media indexing)
+
+The list is built by querying MediaStore. If **the app that created a file never asks for a
+scan, that file is never indexed**, so it never shows up no matter how long you wait. On
+Android 8 the media scanner runs at boot and on a `MEDIA_SCANNER_SCAN_FILE` broadcast, and some
+downloaders send neither.
+
+That is exactly what happened with two mkv files in `Download/Seal/`:
+```
+Download/Seal/SPINE ｜ ... .mkv                <- indexed (showed up)
+Download/Seal/METRO EXODUS + DLSS 5 ... .mkv   <- not indexed (did not)
+```
+
+So the app takes care of it itself. In `MainActivity.onResume` it
+1. walks external storage up to depth 5 collecting files with video extensions,
+2. picks the ones missing from MediaStore's `_data` list,
+3. hands them to `MediaScannerConnection.scanFile()`, and
+4. reloads the list once the scan finishes.
+
+`Android/` and any directory holding a `.nomedia` are skipped (app-private data, or hidden on
+purpose). Once indexed, the file opens through the usual `content://` path, so subtitle lookup,
+resume keys and everything else keep working untouched — and the file becomes visible to other
+apps too.
+
+It runs in `onResume` so that coming back from a downloader shows the new file straight away.
+
 ## Verification log
 
 | File | Detection | Interlace ratio |
