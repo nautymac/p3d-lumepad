@@ -59,6 +59,21 @@ public class Stereo3DView extends GLSurfaceView {
     private volatile int          videoH       = 9;
     private volatile float        aspectOverride = 0f;
 
+    /**
+     * SBS 를 우리 화면 대신 남의 서피스로 내보낸다 (Lume Pad 2 의 CNSDK).
+     *
+     * 그 패널은 8방향 회절 + 얼굴추적이라 위빙을 CNSDK 가 해야 한다. 우리는 SBS 까지만
+     * 만들어 넘기고 인터레이스 단계를 건너뛴다. null 이면 지금까지대로 우리가 인터레이스한다.
+     */
+    private volatile Surface extTarget = null;
+    private volatile int     extW = 0, extH = 0;
+
+    /**
+     * 렌티큘러 마스크를 쓸지. ProMa 는 true(기본), Lume Pad 2 는 false —
+     * 그 기기에는 libholography 가 만드는 마스크가 맞지 않고 쓸 일도 없다.
+     */
+    private volatile boolean useHolography = true;
+
     /** 자막을 화면 앞쪽으로 띄우는 시차(화면 px). 클수록 앞으로 나온다. */
     private volatile float subtitleDepth = 0f;
 
@@ -137,6 +152,18 @@ public class Stereo3DView extends GLSurfaceView {
     public void setAspectOverride(float a) { aspectOverride = a; requestRender(); }
     public float getAspectOverride()       { return aspectOverride; }
 
+    /**
+     * SBS 출력을 이 서피스로 보낸다. 크기는 <b>두 눈이 담긴 전체 프레임</b> 기준이다
+     * (눈당 1920x1200 이면 3840x1200). GL 표면이 만들어지기 전에 불러도 된다.
+     */
+    public void setExternalSbsTarget(Surface s, int w, int h) {
+        extTarget = s; extW = w; extH = h;
+        requestRender();
+    }
+
+    /** 렌티큘러 마스크 사용 여부. GL 표면이 만들어지기 전에 정해야 한다. */
+    public void setUseHolography(boolean v) { useHolography = v; }
+
     public void setVideoSize(int w, int h) {
         if (w > 0 && h > 0) { videoW = w; videoH = h; requestRender(); }
     }
@@ -184,6 +211,8 @@ public class Stereo3DView extends GLSurfaceView {
         private InterlaceRenderer interlace;
         private BlitRenderer blit;
         private SubtitleRenderer subs;
+        /** SBS 를 남의 서피스로 내보낼 때 쓰는 두 번째 EGL 서피스 (Lume Pad 2). */
+        private ExternalGlTarget external;
         private Fbo fbo;
         private int surfW, surfH;
 
@@ -224,8 +253,16 @@ public class Stereo3DView extends GLSurfaceView {
         public void onSurfaceChanged(GL10 gl, int w, int h) {
             surfW = w;
             surfH = h;
+
+            // 외부로 내보낼 때는 FBO 가 곧 내보낼 프레임이므로 그 크기로 만든다.
+            // 우리가 인터레이스할 때는 지금까지대로 화면 크기.
+            int fw = extTarget != null && extW > 0 ? extW : w;
+            int fh = extTarget != null && extH > 0 ? extH : h;
             if (fbo != null) fbo.release();
-            fbo = new Fbo(w, h);
+            fbo = new Fbo(fw, fh);
+            GlUtil.logi("surface " + w + "x" + h + ", FBO " + fw + "x" + fh);
+
+            if (!useHolography) return;   // Lume Pad 2 등: 마스크를 쓰지 않는다
 
             // 반드시 deinit -> init 순서. 이전 액티비티가 남긴 상태가 있으면 먼저 정리한다.
             synchronized (Stereo3DView.class) {
@@ -237,7 +274,7 @@ public class Stereo3DView extends GLSurfaceView {
                 Holography.HolographyInit(w, h);
                 sHolographyInited = true;
             }
-            GlUtil.logi("surface " + w + "x" + h + ", HolographyInit 완료");
+            GlUtil.logi("HolographyInit 완료");
         }
 
         @Override
@@ -274,7 +311,11 @@ public class Stereo3DView extends GLSurfaceView {
             }
 
             Output out = output;
-            if (out == Output.TWO_D) {
+            if (extTarget != null) {
+                // 외부(CNSDK)로 SBS 를 넘긴다. 인터레이스는 저쪽이 한다.
+                renderSbsToFbo();
+                drawToExternal();
+            } else if (out == Output.TWO_D) {
                 drawMono();
             } else {
                 renderSbsToFbo();
@@ -296,6 +337,53 @@ public class Stereo3DView extends GLSurfaceView {
             if (pendingFrames.get() > 0) requestRender();
         }
 
+        /** FBO 에 만들어 둔 SBS 를 외부 서피스(CNSDK)로 내보낸다. */
+        private void drawToExternal() {
+            Surface s = extTarget;
+            if (s == null) return;
+
+            if (external != null && !external.isFor(s)) {
+                external.release();
+                external = null;
+            }
+            if (external == null) {
+                external = ExternalGlTarget.create(s, extW, extH);
+                if (external == null) { extTarget = null; return; }   // 한 번 실패하면 포기
+            }
+
+            if (!external.makeCurrent()) {
+                GlUtil.logi("외부 타깃 makeCurrent 실패");
+                return;
+            }
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+            GLES20.glViewport(0, 0, external.width, external.height);
+            GLES20.glClearColor(0f, 0f, 0f, 1f);
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
+            blit.draw(fbo.texture(), 0f, 0f, 1f, 1f);
+            external.swapAndRestore();
+        }
+
+        /**
+         * 눈 하나가 화면에서 갖는 종횡비.
+         *
+         * ProMa 는 FBO 의 반쪽(1280x1600)이 화면 전체(2560x1600)로 늘어나므로 화면 비와 같고,
+         * CNSDK 로 넘길 때는 반쪽(1920x1200)이 그대로 눈 상자가 되므로 반쪽 비와 같다.
+         * 이 값이 있어야 어느 쪽이든 레터박스를 같은 식으로 계산할 수 있다.
+         */
+        private float eyeDisplayAspect() {
+            if (extTarget != null && extH > 0) return (extW / 2f) / extH;
+            return (float) surfW / (float) surfH;
+        }
+
+        /**
+         * 눈 하나가 화면에서 갖는 가로 픽셀 수.
+         * 시어 세기와 자막 크기가 "화면에서 얼마나" 를 기준으로 정해지므로 필요하다.
+         */
+        private float eyeDisplayWidth() {
+            if (extTarget != null && extW > 0) return extW / 2f;
+            return surfW;
+        }
+
         /** 좌/우 뷰를 FBO 의 양쪽 절반에 그린다. */
         private void renderSbsToFbo() {
             fbo.bind();
@@ -307,24 +395,31 @@ public class Stereo3DView extends GLSurfaceView {
             float[] uvL = uvFor(f, true);
             float[] uvR = uvFor(f, false);
 
-            // 화면상 종횡비가 맞도록 letterbox 계산.
-            // 3D 출력에서 FBO 절반(W/2 x H)이 화면 전체(W x H)로 늘어나므로
-            // 절반 안에서의 폭은 화면 기준 폭의 1/2 이어야 한다.
+            // 레터박스 계산. 눈 하나가 화면에서 갖는 상자(eyeDisplayAspect)에 소스 비율을
+            // 맞춰 넣고, 그 결과를 FBO 반쪽 픽셀로 환산한다.
+            //
+            // 환산이 필요한 이유: ProMa 는 FBO 반쪽(1280x1600)이 화면 전체(2560x1600)로
+            // 늘어나는 아나모픽이라 폭이 절반으로 눌려 있고, CNSDK 로 넘길 때는
+            // 반쪽(1920x1200)이 그대로 눈 상자라 눌림이 없다. 두 경우를 같은 식으로 다룬다.
+            int   halfW    = fbo.width / 2;
+            int   boxH     = fbo.height;
+            float eyeAsp   = eyeDisplayAspect();
+            float boxDispW = boxH * eyeAsp;          // 눈 상자를 화면 단위로 본 폭
+
             float as = sourceAspect(f);
-            float sw, sh;
-            if ((float) surfW / (float) surfH > as) {
-                sh = surfH;
-                sw = surfH * as;
-            } else {
-                sw = surfW;
-                sh = surfW / as;
+            float dispW, dispH;
+            if (eyeAsp > as) {                        // 상자가 소스보다 옆으로 넓다 -> 좌우 여백
+                dispH = boxH;
+                dispW = boxH * as;
+            } else {                                  // 상자가 더 좁다 -> 위아래 여백
+                dispW = boxDispW;
+                dispH = boxDispW / as;
             }
-            int dw    = Math.max(1, (int) (sw / 2f));
-            int dh    = Math.max(1, (int) sh);
-            int halfW = fbo.width / 2;
-            int dy    = (fbo.height - dh) / 2;
-            int dxL   = (halfW - dw) / 2;
-            int dxR   = halfW + dxL;
+            int dw  = Math.max(1, Math.round(dispW * halfW / boxDispW));   // 화면 단위 -> FBO 픽셀
+            int dh  = Math.max(1, Math.round(dispH));
+            int dy  = (boxH - dh) / 2;
+            int dxL = (halfW - dw) / 2;
+            int dxR = halfW + dxL;
 
             float shearTop   = 0f;
             float shearSlope = 0f;
@@ -341,7 +436,7 @@ public class Stereo3DView extends GLSurfaceView {
                 //
                 // 영점을 세로 중앙에 두면 위는 뒤로, 아래는 앞으로 갈리면서
                 // 화면 전체가 슬라이더에 반응하고 한쪽 눈의 최대 이동량도 절반이 된다.
-                shearSlope = 0.0000122f * surfW * depth;
+                shearSlope = 0.0000122f * eyeDisplayWidth() * depth;
                 shearTop   = shearSlope * SHEAR_PIVOT;
             }
 
@@ -381,9 +476,12 @@ public class Stereo3DView extends GLSurfaceView {
         private void drawSubtitleInHalf(int originX, int halfW, float shiftHalfPx) {
             if (subs == null || !subs.hasSubtitle()) return;
 
-            float onScreenW = Math.min(subs.width(), surfW * 0.92f);
+            float eyeW = eyeDisplayWidth();
+            float onScreenW = Math.min(subs.width(), eyeW * 0.92f);
             float k = onScreenW / (float) subs.width();
-            int w = Math.max(1, (int) (onScreenW / 2f));      // 절반 안에서는 가로 1/2
+            // 화면 단위 폭을 FBO 반쪽 픽셀로 환산한다. ProMa 는 반쪽이 화면 전체로
+            // 늘어나므로 1/2 이 되고, CNSDK 로 넘길 때는 반쪽이 곧 눈 상자라 1 이다.
+            int w = Math.max(1, Math.round(onScreenW * halfW / eyeW));
             int h = Math.max(1, (int) (subs.height() * k));
             int y = (int) (fbo.height * subtitleY);
             int x = originX + (halfW - w) / 2 + (int) shiftHalfPx;

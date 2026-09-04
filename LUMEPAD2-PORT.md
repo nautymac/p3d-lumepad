@@ -133,3 +133,55 @@ Lume Pad 2 에서는 실제 깊이맵을 쓸 수 있다:
 2. `PanelBackend` 심(seam) 도입 — ProMa 는 현행 인터레이스, Leia 는 CNSDK 서피스
 3. 최소 스파이크: 우리 SBS FBO 를 CNSDK 에 물려 3D 가 나오는지 실기 확인
 4. 되면 자막·이어보기·오디오는 이미 있는 것을 붙이기만 하면 된다
+
+---
+
+## 2단계 완료 — 우리 파이프라인이 CNSDK 를 구동한다 (2026-09-05)
+
+```
+ExoPlayer -> Stereo3DView (OES -> FBO 좌/우 절반) -> CNSDK 서피스 -> 위빙 -> 패널
+```
+인터레이스 단계만 CNSDK 로 넘기고 레터박스·시어·자막은 그대로 쓴다.
+실기 확인: 비율 정상, `InterlaceCheck` 가 `INTERLACED (3D)` 판정.
+
+### 추가된 것
+
+- `gl/ExternalGlTarget` — 같은 GL 컨텍스트에 두 번째 EGL 윈도우 서피스를 만들어
+  프레임마다 갈아끼운다. `GLSurfaceView` 는 컨텍스트를 EGL10 으로 만드는데 윈도우
+  서피스는 EGL14 로 만들게 되므로, config 를 새로 고르지 말고 현재 컨텍스트의
+  `EGL_CONFIG_ID` 로 되찾아야 한다.
+- `Stereo3DView.setExternalSbsTarget(surface, w, h)` — 있으면 인터레이스를 건너뛰고
+  FBO 를 그 서피스로 blit 한다. FBO 크기도 그 값이 된다.
+- `Stereo3DView.setUseHolography(false)` — Lume Pad 2 에서는 마스크를 만들지 않는다.
+
+### 레터박스 계산을 두 패널에 맞게 일반화
+
+`eyeDisplayAspect()` / `eyeDisplayWidth()` 를 도입했다. 눈 하나가 **화면에서** 갖는
+상자를 기준으로 소스를 맞춘 뒤, 결과를 FBO 반쪽 픽셀로 환산한다.
+
+|  | FBO 반쪽 | 화면에서의 눈 | 환산 |
+|---|---|---|---|
+| ProMa | 1280x1600 | 2560x1600 (아나모픽 2배) | x0.5 |
+| Lume Pad 2 | 1920x1200 | 1920x1200 (그대로) | x1 |
+
+시어 세기와 자막 크기도 `surfW` 대신 `eyeDisplayWidth()` 를 쓴다.
+ProMa 경로의 결과값은 대수적으로 종전과 동일하다(확인함). 다만 **실기 확인은 못 했다** —
+ProMa 가 연결돼 있지 않았다. USB 연결되면 회귀 확인이 필요하다.
+
+### 노트에 없던 함정
+
+**CNSDK 는 `assets/shaders/*` 와 `assets/cnsdk.version` 을 APK 에서 읽는다.**
+빼먹으면 `Interlacer.doPostProcess` 안에서 셰이더가 null 이라 SIGSEGV 로 죽는다
+(`leia::opengl::Shader::UseVariantWithPermutations`, fault addr 0x20).
+jar 와 .so 만으로는 부족하다.
+
+또 하나: `--ei w/h` 는 **CNSDK 로 내보낼 프레임 크기**지 소스 크기가 아니다.
+소스 해상도는 `ExoPlayer.onVideoSizeChanged` 에서 `setVideoSize()` 로 따로 알려줘야
+레터박스가 맞는다.
+
+## 다음
+
+1. PlayerActivity 를 leia 플레이버에서도 쓰게 한다 (지금은 스파이크 액티비티만)
+   — 자막·이어보기·엔진 선택·FFmpeg 오디오가 한꺼번에 붙는다
+2. 스테레오 자동판별을 그대로 태운다 (LeiaTube 도 layoutdetection 을 쓴다)
+3. 2D→3D 는 시어 대신 MiDaS 깊이맵으로 (노트 10절, 이 기기 6~9ms/프레임)

@@ -24,14 +24,14 @@ import com.leia.sdk.views.InputViewsAsset;
 import com.leia.sdk.views.InterlacedSurfaceView;
 import com.leia.sdk.views.InterlacedSurfaceViewConfigAccessor;
 import com.leia.sdk.views.ScaleType;
+import com.nauty.p3d.SourceFormat;
+import com.nauty.p3d.gl.Stereo3DView;
 
 /**
  * Lume Pad 2 포팅 1단계 — CNSDK 경로만 검증하는 최소 스파이크.
  *
- * 확인하려는 것은 딱 하나다: **디코더 출력을 CNSDK 서피스에 넣으면 3D 가 나오는가.**
- * 그래서 여기서는 3D 파이프라인(FBO, 시어, 자막)을 전혀 쓰지 않고 ExoPlayer 를
- * CNSDK 가 준 서피스에 바로 물린다. 이게 되면 그 다음에 우리 SBS FBO 를 같은 자리에
- * 끼워 넣으면 된다.
+ * 경로: ExoPlayer -> Stereo3DView(OES -> FBO 좌/우 절반) -> CNSDK 서피스 -> 위빙.
+ * 인터레이스 단계만 CNSDK 로 넘기고 나머지(레터박스, 시어, 자막)는 그대로 쓴다.
  *
  * ProMa 와 근본적으로 다른 점: 패널이 렌티큘러가 아니라 8방향 회절 백라이트라
  * 얼굴 위치에 따라 어느 방향이 어느 눈인지 계속 다시 계산된다. 그래서 우리가 셰이더로
@@ -61,6 +61,9 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
     private InterlacedSurfaceView leiaView;
     private ExoPlayer player;
     private Surface videoSurface;
+    private Surface sbsOut;
+    private Stereo3DView stereo;
+    private SourceFormat fmt = SourceFormat.SBS_FULL;
     private Uri mediaUri;
 
     /** SDK 초기화가 끝났는지. createSDK 직후에는 아직 false 다 (비동기). */
@@ -70,6 +73,7 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         String u = getIntent().getStringExtra("uri");
         if (u == null) {
@@ -80,23 +84,44 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
         mediaUri = Uri.parse(u);
         frameW = getIntent().getIntExtra("w", frameW);
         frameH = getIntent().getIntExtra("h", frameH);
+        String fs = getIntent().getStringExtra("fmt");
+        if (fs != null) {
+            try { fmt = SourceFormat.valueOf(fs); } catch (IllegalArgumentException ignored) { }
+        }
         Log.i(TAG, "소스 " + mediaUri + "  프레임 " + frameW + "x" + frameH);
 
         FrameLayout root = new FrameLayout(this);
+
+        // 우리 3D 파이프라인. 화면에는 CNSDK 뷰가 나가므로 이쪽은 보이지 않아도 되지만,
+        // GL 컨텍스트를 얻으려면 계층에 들어 있어야 한다. 1x1 로 깔아 둔다.
+        // 마스크는 쓰지 않는다 — 이 패널에는 맞지 않고 위빙은 CNSDK 가 한다.
+        stereo = new Stereo3DView(this);
+        stereo.setUseHolography(false);
+        stereo.setSourceFormat(fmt);
+        stereo.setCallback(new Stereo3DView.Callback() {
+            @Override public void onSurfaceReady(Surface s, SurfaceTexture st) {
+                ui.post(new Runnable() {
+                    @Override public void run() { startPlayback(s); }
+                });
+            }
+        });
+        root.addView(stereo, new FrameLayout.LayoutParams(1, 1));
+
         leiaView = new InterlacedSurfaceView(this);
         root.addView(leiaView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
 
-        // 디코더가 그릴 서피스를 CNSDK 에게 받는다. 콜백은 GL 스레드에서 온다.
+        // CNSDK 가 내주는 서피스에는 디코더가 아니라 **우리가 만든 SBS** 를 넣는다.
+        // 그래야 레터박스·시어·자막이 다 적용된 그림이 위빙된다.
         InputViewsAsset asset = new InputViewsAsset();
         asset.CreateEmptySurfaceForVideo(frameW, frameH, new SurfaceTextureReadyCallback() {
             @Override public void onSurfaceTextureReady(SurfaceTexture st) {
                 st.setDefaultBufferSize(frameW, frameH);
-                final Surface s = new Surface(st);
-                ui.post(new Runnable() {
-                    @Override public void run() { startPlayback(s); }
-                });
+                Surface s = new Surface(st);
+                sbsOut = s;
+                stereo.setExternalSbsTarget(s, frameW, frameH);
+                Log.i(TAG, "CNSDK 서피스를 3D 파이프라인 출력으로 연결");
             }
         });
         leiaView.setViewAsset(asset);
@@ -141,12 +166,20 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
     private void startPlayback(Surface s) {
         videoSurface = s;
         player = new ExoPlayer.Builder(this).build();
+        // 소스 해상도를 알려줘야 눈당 상자에 레터박스를 옳게 친다.
+        // (--ei w/h 는 CNSDK 로 내보낼 프레임 크기지 소스 크기가 아니다)
+        player.addListener(new androidx.media3.common.Player.Listener() {
+            @Override public void onVideoSizeChanged(androidx.media3.common.VideoSize v) {
+                Log.i(TAG, "소스 해상도 " + v.width + "x" + v.height);
+                if (stereo != null) stereo.setVideoSize(v.width, v.height);
+            }
+        });
         player.setVideoSurface(s);
         player.setMediaItem(MediaItem.fromUri(mediaUri));
         player.setRepeatMode(ExoPlayer.REPEAT_MODE_ALL);
         player.prepare();
         player.setPlayWhenReady(true);
-        Log.i(TAG, "ExoPlayer 를 CNSDK 서피스에 물렸다");
+        Log.i(TAG, "ExoPlayer 를 3D 파이프라인 입력면에 물렸다");
     }
 
     // ------------------------------------------------------------ LeiaSDK.Delegate
@@ -183,6 +216,7 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
     protected void onResume() {
         super.onResume();
         wantActive = true;
+        if (stereo != null) stereo.onResume();       // 숨겨둔 GLSurfaceView 도 직접 깨워야 한다
         if (leiaView != null) leiaView.onResume();
         if (sdk != null) { try { sdk.onResume(); } catch (Throwable ignored) { } }
         if (player != null) player.setPlayWhenReady(true);
@@ -197,6 +231,7 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
         if (player != null) player.setPlayWhenReady(false);
         if (sdk != null) { try { sdk.onPause(); } catch (Throwable ignored) { } }
         if (leiaView != null) leiaView.onPause();
+        if (stereo != null) stereo.onPause();
     }
 
     @Override
