@@ -31,3 +31,4 @@ app3d/ffmpeg/src/main/jni/ffmpeg/
 # Leia CNSDK — 기기에서 추출한 것이라 재배포 불가. 커밋 금지
 app3d/app/libs/leia-cnsdk.jar
 app3d/app/src/leia/jniLibs/
+app3d/app/src/leia/assets/

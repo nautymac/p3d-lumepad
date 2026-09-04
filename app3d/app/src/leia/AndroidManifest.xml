@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      얼굴추적이 카메라를 쓴다. 이게 없으면 추적이 시작되지 않는다.
+    -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!--
+      CNSDK 는 시작하면서 Leia 시스템 패키지 두 개를 조회한다. Android 11+ 의 패키지
+      가시성 제한으로 조회가 실패하면 예외를 지우지 않고 다음 JNI 호출로 넘어가
+      프로세스가 로그도 없이 abort 된다.
+
+      우리는 targetSdk 28 이라 원래 가시성 제한을 받지 않지만, targetSdk 를 올리는
+      순간 걸릴 자리라 미리 선언해 둔다.
+    -->
+    <queries>
+        <package android:name="com.leia.headtrackingservice" />
+        <package android:name="com.leialoft.display.config" />
+    </queries>
+
+    <application>
+        <!-- 백라이트 3D 전환 API. 시스템 공유 라이브러리로 정식 선언돼 있다
+             (/system/etc/permissions/com.leia.android.lights.xml).
+             CNSDK 가 알아서 쓰지만, 없는 기기에서 죽지 않게 required=false. -->
+        <uses-library android:name="com.leia.android.lights" android:required="false"/>
+
+        <activity
+            android:name="com.nauty.p3d.leia.LeiaSpikeActivity"
+            android:exported="true"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+    </application>
+</manifest>
