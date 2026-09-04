@@ -27,3 +27,7 @@ keystore.properties
 
 # FFmpeg 정적 라이브러리와 헤더 (app3d/ffmpeg/README.md 의 스크립트로 재생성)
 app3d/ffmpeg/src/main/jni/ffmpeg/
+
+# Leia CNSDK — 기기에서 추출한 것이라 재배포 불가. 커밋 금지
+app3d/app/libs/leia-cnsdk.jar
+app3d/app/src/leia/jniLibs/

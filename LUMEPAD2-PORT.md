@@ -1,0 +1,135 @@
+# Lume Pad 2 포팅 — 진행 상태
+
+기준일 2026-09-04. 기기: `LumePadGen2` / `LPD-20W`, **Android 12**, arm64-v8a.
+무선 디버깅 `192.168.50.119:40529` (페어링 완료).
+
+참고 노트: `D:\OneDrive\temp\lume-pad-2-cnsdk-notes.md` (사용자가 Artemis 포크에서 실기로 정리한 것).
+
+---
+
+## 실기에서 확인한 것
+
+### 전체화면 2D→3D 는 불가능
+
+ProMa 의 3DFV 같은 시스템 컴포지터가 없다.
+
+| 확인 | 결과 |
+|---|---|
+| SurfaceFlinger 위빙/인터레이스 훅 | 없음 (Leia 레이어는 LeiaTube 자기 것뿐) |
+| Leia 시스템 서비스 | `leia_lights_service` 하나 — **백라이트 제어일 뿐** |
+| 관련 설정값 | `backlight_mode3d_ratio_3d` 등 백라이트 비율만 |
+| 화이트리스트 개념 | 없음 |
+
+패널이 8방향 회절 + 얼굴추적이라 **각 앱이 자기 프레임을 직접 위빙**해야 한다.
+따라서 YouTube 앱 자체를 3D 로 바꾸는 경로는 없다.
+
+### LeiaTube 공유 경로는 지금 깨져 있다
+
+`ACTION_SEND` + `www.youtube.com` 필터가 있어 링크를 넘기면
+"Playing shared video in 3D using AI" 까지는 간다. 그러나 실패한다:
+
+```
+I okhttp: <-- 200 OK https://leiatube-api.leialoft.com/api/v1/app-config   ← 백엔드는 살아있음
+I LayoutDetectionModel: Model successfully loaded in 838ms                 ← NPU 모델 정상
+W System.err: java.lang.RuntimeException: setDataSource failed: status = 0x80000000
+    at TubeUtils.getVideoType(TubeUtils.kt:196)
+    at TubeRepository.resultFromLibrary(TubeRepository.kt:277)
+```
+
+앱은 내장 yt-dlp(`libpython.zip.so`) + `libaria2c.so` 로 영상을 **직접 내려받은 뒤** 변환한다.
+Leia 서버가 주는 설정의 추출기 옵션이 `youtube:player_client=android_vr,ios` 인데
+YouTube 가 막아 스트림 URL 이 무효가 된다 → `setDataSource` 실패 → "Invalid Request".
+
+**기기나 AI 문제가 아니라 추출기가 낡은 것이다.** Leia 가 갱신하지 않는 한 계속 실패한다.
+그러므로 "링크를 LeiaTube 로 보내기" 버튼은 지금 값어치가 없다.
+
+### 반대로, 온디바이스 AI 스택은 살아 있다
+
+```
+remote_handle64_open: Successfully opened libSnpeHtpV68Skel.so on domain 3
+LayoutDetectionModel: Allocating SNPE buffers complete / loaded in 838ms
+```
+`com.leiainc.media.service` 가 Qualcomm SNPE + Hexagon NPU 커널을 통째로 품고 있다
+(`libSNPE.so` 11MB, `libSnpeHtpV68/V69/V73Skel.so`, `libandroidmediasdk.so` 44MB).
+다만 **런처 액티비티만 exported 라 외부에서 호출할 수 없다.** 우리가 쓰려면 모델을 직접 들고 가야 한다.
+
+---
+
+## 확보한 것
+
+```
+app3d/app/libs/leia-cnsdk.jar                     115 클래스 (com.leia.*)
+app3d/app/src/leia/jniLibs/arm64-v8a/libleiaSDK.so     2.1MB
+app3d/app/src/leia/jniLibs/arm64-v8a/libleiaspdlog.so  1.4MB
+```
+
+`com.moonlight.leia` APK 를 dex2jar v2.4 로 변환해 `com/leia/**` 만 추린 것.
+`LeiaSDK` 는 `System.loadLibrary("leiaSDK")` 하나만 부른다.
+
+**이 셋은 `.gitignore` 로 막아 뒀다. 재배포 불가 — 절대 커밋하지 말 것.**
+
+작업 사본: `C:\Users\nauty\lume-port\` (추출 원본, dex2jar 도구)
+
+### 공식 경로도 하나 있다
+
+`com.leia.android.lights` 는 **시스템 공유 라이브러리로 선언돼 있다**:
+```xml
+/system/etc/permissions/com.leia.android.lights.xml
+<library name="com.leia.android.lights" file="/system/framework/com.leia.android.lights.jar"/>
+```
+`LeiaLightsManager` 에 `BacklightMode{MODE_2D, MODE_3D, MODE_3D_EXPERIMENTAL, MODE_IMMERSIVE,
+MODE_TRANSITION}`, `setBacklightMode()`, `getBacklightType()`, `ViewConfig(NumberOfViews)` 가 있다.
+**백라이트 전환만 필요하면 `<uses-library>` 로 공식 API 를 쓸 수 있다.** 위빙은 여전히 CNSDK 몫.
+
+---
+
+## 포팅 설계
+
+우리 파이프라인은 이미 SBS FBO 를 만든 뒤 인터레이스한다. **마지막 한 단계만 교체하면 된다.**
+
+```
+ProMa : ... → FBO(L|R) → [libholography 마스크 + frag3D] → GLSurfaceView
+Leia  : ... → FBO(L|R) → [CNSDK 서피스로 전달]          → InterlacedSurfaceView
+```
+
+자막·화면비·이어보기·엔진 선택·FFmpeg 오디오·스테레오 판별은 그대로 재사용된다.
+반대로 `Fv3d*`(화이트리스트, 3D 컨트롤 센터)는 Lume Pad 2 에서 의미가 없다.
+
+### 기하 (노트 7절 — 여기서 제일 많이 헤맨다고 적혀 있음)
+
+- `setSourceSize` 는 **두 눈이 담긴 전체 프레임** 크기다. `numTiles(2,1)` 이 반으로 가른다.
+- 눈당 권장 1920x1200 → 프레임 **3840x1200**. half-SBS 로 보내면 가로로 눌린다.
+- `ScaleType` 을 믿지 말 것. `FIT_CENTER` 로 설정해도 실제로는 화면을 채운다.
+  → **넘기기 전에 눈당 상자를 패널 종횡비(16:10)로 잡고 영상을 중앙 배치 + 레터박스**.
+  우리 `Stereo3DView` 의 레터박스 계산을 그대로 쓸 수 있다.
+- `setSourceSize` 소유권은 한 곳에만. 프레임에 눈이 몇 개 담기는지 아는 쪽이 가져야 한다.
+
+### 초기화 함정 (노트 4절)
+
+1. `<queries>` 로 `com.leia.headtrackingservice`, `com.leialoft.display.config` 선언.
+   빠지면 **로그도 없이 프로세스 abort**. (우리는 targetSdk 28 이라 원래 제한이 없지만 그래도 넣는다)
+2. `InitArgs.platform` 에 `app` 뿐 아니라 **`activity` 와 `context` 까지** 채워야 `createSDK` 가 null 이 아니다.
+3. 초기화는 **비동기**다. `createSDK` 직후 `isInitialized()` 는 false — `Delegate.didInitialize` 를 기다린다.
+4. `java.util.logging` 계열 로거는 이 기기 logcat 에 안 나온다. 진단은 `android.util.Log`.
+
+### 생명주기 (노트 9절)
+
+백라이트와 카메라는 시스템 공용이다. **앞에 있고 3D 일 때만** 잡는다.
+`onPause` 에서 `startFaceTracking(false)` + `enableBacklight(false)`.
+숨긴 `GLSurfaceView` 를 쓰면 그쪽 `onResume`/`onPause` 도 직접 불러야 한다.
+
+### 2D→3D
+
+지금 우리 방식(세로 그라디언트 시어)은 "장면은 기울어진 바닥면" 이라는 추측 하나뿐이다.
+Lume Pad 2 에서는 실제 깊이맵을 쓸 수 있다:
+- **MiDaS v2 int8 TFLite** — 노트에서 이 기기 6~9ms/프레임으로 검증. Intel 공개 모델이라 라이선스 무리 없음
+- 또는 SNPE 로 NPU 사용 (Leia 방식). 더 빠르지만 SNPE SDK 별도 필요
+
+---
+
+## 다음 할 일
+
+1. `app3d` 에 `proma` / `leia` 제품 플레이버 구성 (leia 만 CNSDK 의존)
+2. `PanelBackend` 심(seam) 도입 — ProMa 는 현행 인터레이스, Leia 는 CNSDK 서피스
+3. 최소 스파이크: 우리 SBS FBO 를 CNSDK 에 물려 3D 가 나오는지 실기 확인
+4. 되면 자막·이어보기·오디오는 이미 있는 것을 붙이기만 하면 된다
