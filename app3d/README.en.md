@@ -548,14 +548,17 @@ streaming and game apps render in a different activity from their launcher one
 
 ## Device dependency
 
-`libholography.so` does not carry the lenticular mask in code — it reads it from a file.
+The 3D output is tied to the lenticular mask that `libholography.so` produces. That mask is
+built for the ProMa P10 panel geometry, so **it will not line up on a different panel.**
 
 ```
-/sdcard/3DKanKan/matrix     8,192,000 bytes    ← per-panel calibration
+/sdcard/3DKanKan/matrix     8,192,000 bytes = 2560x1600x2
 ```
 
-Sight3D generates it at the factory. **Without it, or with another panel's values, the 3D does
-not line up** — so this only works on the same ProMa P10.
+This file is only a **cache** of that mask. It first looked like factory per-panel calibration
+that must not be lost, but moving it away, freezing the same frame and comparing pixel by pixel
+against the original gave an exact match (mean diff 0.0000, max diff 0) — `libholography`
+regenerates the same thing when it is absent. See "What a factory reset actually costs".
 
 ### Overlay registration — verified
 
