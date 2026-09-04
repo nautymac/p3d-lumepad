@@ -224,3 +224,36 @@ FBO 를 `onSurfaceChanged` 에서만 만들었더니 순서에 걸렸다. 우리
 
 수정: 매 프레임 외부 타깃 크기와 FBO 크기를 비교해 다르면 다시 만든다.
 순서와 무관해진다.
+
+---
+
+## 저장소 분리 (2026-09-05)
+
+Lume Pad 2 포팅이 공용 코드를 건드리는데 ProMa 실기로 확인할 수 없어서, 아예 갈랐다.
+
+| 저장소 | 대상 | 상태 |
+|---|---|---|
+| `nautymac/proma3d` | ProMa P10 전용 | v1.2.4 상태로 되돌림. 릴리스 v1.0.0~v1.2.4 그대로 |
+| `nautymac/p3d-lumepad` | Lume Pad 2 (이 저장소) | 전체 이력 포함해 분리 |
+
+ProMa 기기에 설치된 것도 v1.2.4 라 동작 중인 버전에는 영향이 없다.
+공통 개선(자막, 이어보기, 오디오 등)이 생기면 한쪽에서 만들고 다른 쪽으로 옮겨야 한다 —
+그게 완전 분리의 대가다.
+
+### 새로 받아 빌드할 때 필요한 것
+
+둘 다 재배포 불가라 저장소에 없다. 로컬에서 채워야 한다.
+
+```
+app3d/app/libs/leia-cnsdk.jar                       CNSDK (이 문서 위쪽 절차)
+app3d/app/src/leia/jniLibs/arm64-v8a/*.so           libleiaSDK.so, libleiaspdlog.so
+app3d/app/src/leia/assets/shaders/*                 CNSDK 셰이더 — 없으면 SIGSEGV
+app3d/app/src/leia/assets/cnsdk.version
+app3d/ffmpeg/src/main/jni/ffmpeg/                   FFmpeg 정적 라이브러리 (ffmpeg/README.md)
+```
+
+빌드:
+```
+gradle assembleLeiaRelease      # Lume Pad 2 용
+```
+`proma` 플레이버도 남아 있지만 이 저장소에서는 쓰지 않는다.
