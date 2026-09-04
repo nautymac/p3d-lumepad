@@ -101,7 +101,8 @@ public class PlayerActivity extends Activity
     // 설정 패널
     private View settingsPanel;
     private Button btnSource, btnOutput, btnSwap, btnSubtitle, btnAspect, btnEngine;
-    private TextView statusText, subtitleName;
+    private TextView statusText, subtitleName, aspectLabel;
+    private SeekBar  aspectSeek;
 
     // 자막
     private Subtitles.Track subtitleTrack;
@@ -231,6 +232,7 @@ public class PlayerActivity extends Activity
         glView.setSubtitleY(sp.getInt(KEY_SUB_Y, 4) / 100f);
         glView.setSubtitleDepth(sp.getInt(KEY_SUB_DEPTH, 0));
         glView.setAspectOverride(sp.getFloat(KEY_ASPECT + mediaKey, 0f));
+        syncAspectUi();
     }
 
     private int dp(int v) {
@@ -446,6 +448,29 @@ public class PlayerActivity extends Activity
             @Override public void onClick(View v) { redetect(); }
         });
 
+        // 소스 비율이 틀리게 담긴 파일이 흔하다 (2.39:1 영화를 16:10 에 늘려 담은 것 등).
+        // 자주 쓰는 컨트롤이라 자막 설정보다 위, 기하 그룹에 둔다.
+        btnAspect = panelButton(p, "화면 비", new View.OnClickListener() {
+            @Override public void onClick(View v) { cycleAspect(); }
+        });
+
+        // 프리셋만으로는 부족하다. 소스를 만든 사람이 임의 비율로 눌러 담은 파일이 있어서
+        // (2.39:1 을 16:10 에 채워 넣은 것 등) 눈으로 맞출 수 있어야 한다.
+        // 1.00 ~ 3.00 을 100 단위로 훑는다. 움직이면 프리셋 대신 이 값이 쓰인다.
+        aspectLabel = label(aspectSliderText());
+        p.addView(aspectLabel);
+        aspectSeek = slider(200, aspectSliderInit(), new OnValue() {
+            @Override public void set(int v) {
+                float a = (100 + v) / 100f;          // 1.00 .. 3.00
+                glView.setAspectOverride(a);
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putFloat(KEY_ASPECT + mediaKey, a).apply();
+                if (aspectLabel != null) aspectLabel.setText(aspectSliderText());
+                refreshLabels();
+            }
+        });
+        p.addView(aspectSeek);
+
         p.addView(label("깊이 (2D→3D 시차 강도)"));
         p.addView(slider(300, 100, new OnValue() {
             @Override public void set(int v) { glView.setDepth(v / 100f); refreshLabels(); }
@@ -496,10 +521,6 @@ public class PlayerActivity extends Activity
                 sp.edit().putInt(KEY_SUB_DEPTH, v).apply();
             }
         }));
-
-        btnAspect = panelButton(p, "화면 비", new View.OnClickListener() {
-            @Override public void onClick(View v) { cycleAspect(); }
-        });
 
         btnEngine = panelButton(p, "엔진", new View.OnClickListener() {
             @Override public void onClick(View v) { switchEngine(); }
@@ -719,6 +740,25 @@ public class PlayerActivity extends Activity
         return String.format(Locale.US, "%.2f:1", a);
     }
 
+    /** 저장된 화면 비를 패널 UI 에 반영한다. 패널은 저장값을 적용하기 전에 만들어진다. */
+    private void syncAspectUi() {
+        if (aspectLabel != null) aspectLabel.setText(aspectSliderText());
+        if (aspectSeek  != null) aspectSeek.setProgress(aspectSliderInit());
+    }
+
+    /** 슬라이더 위치 -> 표시용 문구. 자동이면 소스가 시키는 대로라는 뜻이다. */
+    private String aspectSliderText() {
+        float a = glView == null ? 0f : glView.getAspectOverride();
+        if (a <= 0f) return "화면 비 미세조정 (지금은 자동)";
+        return String.format(Locale.US, "화면 비 미세조정 — %.2f : 1", a);
+    }
+
+    private int aspectSliderInit() {
+        float a = glView == null ? 0f : glView.getAspectOverride();
+        if (a <= 0f) a = 1.78f;                       // 자동이면 16:9 근처에서 시작
+        return Math.max(0, Math.min(200, Math.round(a * 100f) - 100));
+    }
+
     private void cycleAspect() {
         float cur = glView.getAspectOverride();
         int i = 0;
@@ -729,6 +769,7 @@ public class PlayerActivity extends Activity
         glView.setAspectOverride(next);
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putFloat(KEY_ASPECT + mediaKey, next).apply();
+        syncAspectUi();
         refreshLabels();
     }
 
