@@ -64,6 +64,7 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
     private Surface sbsOut;
     private Stereo3DView stereo;
     private SourceFormat fmt = SourceFormat.SBS_FULL;
+    private boolean detectFormat = false;
     private Uri mediaUri;
 
     /** SDK 초기화가 끝났는지. createSDK 직후에는 아직 false 다 (비동기). */
@@ -87,6 +88,8 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
         String fs = getIntent().getStringExtra("fmt");
         if (fs != null) {
             try { fmt = SourceFormat.valueOf(fs); } catch (IllegalArgumentException ignored) { }
+        } else {
+            detectFormat = true;    // 지정이 없으면 픽셀로 판별한다 (아래 startDetection)
         }
         Log.i(TAG, "소스 " + mediaUri + "  프레임 " + frameW + "x" + frameH);
 
@@ -138,6 +141,29 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
         }
 
         initSdk();
+        if (detectFormat) startDetection();
+    }
+
+    /**
+     * 파일명은 믿을 수 없다. 실제로 "IMG_2110_SBS.mp4" 는 이름만 SBS 고 half 였다 —
+     * full 로 해석하면 좌우가 눌린다. ProMa 에서 코랄라인이 같은 방식으로 틀렸었다.
+     * 그래서 프레임을 뜯어 픽셀로 판별한다.
+     */
+    private void startDetection() {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final SourceFormat d = com.nauty.p3d.StereoDetect.detect(LeiaSpikeActivity.this, mediaUri);
+                if (d == null) { Log.i(TAG, "스테레오 판별 실패 - 기본값 유지"); return; }
+                ui.post(new Runnable() {
+                    @Override public void run() {
+                        fmt = d;
+                        if (stereo != null) stereo.setSourceFormat(d);
+                        Log.i(TAG, "픽셀 판별 결과: " + d);
+                        Toast.makeText(LeiaSpikeActivity.this, "소스: " + d.label, Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        }).start();
     }
 
     /**
