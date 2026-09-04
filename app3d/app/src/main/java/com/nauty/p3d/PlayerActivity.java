@@ -56,7 +56,7 @@ public class PlayerActivity extends Activity
     private static final String KEY_SUB_Y     = "sub_y";
     private static final String KEY_SUB_DEPTH = "sub_depth";
     private static final String KEY_POS       = "pos:";
-    private static final String KEY_ASPECT    = "aspect";
+    private static final String KEY_ASPECT    = "aspect:";
 
     /** 이번 재생에만 적용되는 엔진 지정 (인텐트 엑스트라). 저장하지 않는다. */
     private VideoEngine.Kind forcedKind = null;
@@ -230,7 +230,7 @@ public class PlayerActivity extends Activity
         subtitleScale = Math.max(0.4f, sp.getInt(KEY_SUB_SCALE, 100) / 100f);
         glView.setSubtitleY(sp.getInt(KEY_SUB_Y, 4) / 100f);
         glView.setSubtitleDepth(sp.getInt(KEY_SUB_DEPTH, 0));
-        glView.setAspectOverride(sp.getFloat(KEY_ASPECT, 0f));
+        glView.setAspectOverride(sp.getFloat(KEY_ASPECT + mediaKey, 0f));
     }
 
     private int dp(int v) {
@@ -728,7 +728,7 @@ public class PlayerActivity extends Activity
         float next = ASPECTS[(i + 1) % ASPECTS.length];
         glView.setAspectOverride(next);
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putFloat(KEY_ASPECT, next).apply();
+                .putFloat(KEY_ASPECT + mediaKey, next).apply();
         refreshLabels();
     }
 
@@ -1018,6 +1018,9 @@ public class PlayerActivity extends Activity
 
         // 디버그: --ei depth N 이면 2D→3D 시차 강도를 N% 로 시작한다 (슬라이더와 같은 단위).
         // 시어 램프를 측정하려면 값을 손으로 맞추지 않고 고정할 수 있어야 한다.
+        float aspectX = getIntent().getFloatExtra("aspect", Float.NaN);
+        if (!Float.isNaN(aspectX)) glView.setAspectOverride(aspectX);
+
         int depthPct = getIntent().getIntExtra("depth", -1);
         if (depthPct >= 0) glView.setDepth(depthPct / 100f);
 
