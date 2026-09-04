@@ -185,3 +185,42 @@ jar 와 .so 만으로는 부족하다.
    — 자막·이어보기·엔진 선택·FFmpeg 오디오가 한꺼번에 붙는다
 2. 스테레오 자동판별을 그대로 태운다 (LeiaTube 도 layoutdetection 을 쓴다)
 3. 2D→3D 는 시어 대신 MiDaS 깊이맵으로 (노트 10절, 이 기기 6~9ms/프레임)
+
+---
+
+## 3단계 완료 — 실제 플레이어가 Lume Pad 2 에서 돈다 (2026-09-05)
+
+`LeiaSpikeActivity` 가 아니라 **`PlayerActivity` 가 그대로** 이 패널에서 동작한다.
+자막·이어보기·엔진 선택·FFmpeg 오디오·픽셀 판별이 전부 따라왔다.
+
+### PanelBackend 심
+
+패널마다 다른 것은 마지막 한 단계뿐이라, 그것만 인터페이스로 갈랐다.
+
+```
+main   panel/PanelBackend    outputView / attach / useHolography / 생명주기
+proma  panel/Panel           아무것도 안 함 (Stereo3DView 자체가 출력)
+leia   panel/Panel           CNSDK 초기화 + InterlacedSurfaceView + 외부 타깃 연결
+```
+
+`PlayerActivity` 는 `Panel.create()` 만 부르면 된다. CNSDK 를 참조하는 코드가
+leia 소스셋 밖으로 나가지 않으므로 proma 빌드는 CNSDK 없이 그대로 빌드된다.
+CNSDK 뷰가 화면을 차지할 때는 우리 GLSurfaceView 를 1x1 로 깔고 탭 대상만 옮긴다.
+
+### 잡은 버그: FBO 크기 경합
+
+증상: 어떤 파일은 위빙이 안 되고 화면이 뭉개진다 (레고 배트맨 등).
+
+```
+I P3D : surface 1x1, FBO 1x1          <- 여기서 굳어버린다
+I P3D : 외부 타깃 준비 3840x1200
+```
+
+FBO 를 `onSurfaceChanged` 에서만 만들었더니 순서에 걸렸다. 우리 GLSurfaceView 는
+1x1 이라 표면이 먼저 준비되는 경우가 있고, 그때는 아직 외부 타깃이 없어 FBO 가
+1x1 로 잡힌다. 그 뒤 CNSDK 서피스가 와도 **뷰 크기가 안 변하니 onSurfaceChanged 가
+다시 오지 않아** FBO 가 1x1 인 채로 남고, 그것을 화면 전체로 늘려 뿌리게 된다.
+스파이크에서 멀쩡했던 건 콜백 순서가 우연히 반대였기 때문이다.
+
+수정: 매 프레임 외부 타깃 크기와 FBO 크기를 비교해 다르면 다시 만든다.
+순서와 무관해진다.

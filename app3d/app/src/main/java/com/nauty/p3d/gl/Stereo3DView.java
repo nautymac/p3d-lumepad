@@ -312,6 +312,18 @@ public class Stereo3DView extends GLSurfaceView {
 
             Output out = output;
             if (extTarget != null) {
+                // FBO 크기는 외부 타깃을 따라야 한다.
+                //
+                // onSurfaceChanged 에서만 만들면 순서에 걸린다: 우리 GLSurfaceView 는
+                // 1x1 로 깔려 있어 표면이 먼저 만들어지는 경우가 있고, 그때는 아직
+                // 외부 타깃이 없어 FBO 가 1x1 로 잡힌 뒤 다시 만들어지지 않는다
+                // (뷰 크기가 안 변하니 onSurfaceChanged 가 다시 오지 않는다).
+                // 그러면 1x1 을 화면 전체로 늘려 뿌리게 된다.
+                if (fbo == null || fbo.width != extW || fbo.height != extH) {
+                    if (fbo != null) fbo.release();
+                    fbo = new Fbo(extW, extH);
+                    GlUtil.logi("FBO 를 외부 타깃 크기로 재생성 " + extW + "x" + extH);
+                }
                 // 외부(CNSDK)로 SBS 를 넘긴다. 인터레이스는 저쪽이 한다.
                 renderSbsToFbo();
                 drawToExternal();

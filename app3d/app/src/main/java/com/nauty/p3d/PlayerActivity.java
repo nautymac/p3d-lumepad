@@ -32,6 +32,7 @@ import com.nauty.p3d.engine.ExoEngine;
 import com.nauty.p3d.engine.VideoEngine;
 import com.nauty.p3d.engine.VlcEngine;
 import com.nauty.p3d.gl.Stereo3DView;
+import com.nauty.p3d.panel.Panel;
 import com.nauty.p3d.subtitle.SubtitleBitmap;
 import com.nauty.p3d.subtitle.Subtitles;
 
@@ -82,6 +83,9 @@ public class PlayerActivity extends Activity
     private String  mediaKey;
 
     private Stereo3DView glView;
+    private com.nauty.p3d.panel.PanelBackend panel;
+    /** 컨트롤을 토글하는 탭을 받는 뷰. 패널에 따라 GL 뷰이거나 CNSDK 뷰다. */
+    private View tapTarget;
     private VideoEngine  engine;
     private Surface        videoSurface;
     private SurfaceTexture videoSurfaceTexture;
@@ -130,10 +134,27 @@ public class PlayerActivity extends Activity
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
+        // 패널마다 다른 것은 "마지막 한 단계" 뿐이다 (PanelBackend 주석 참고).
+        panel = Panel.create();
+
         glView = new Stereo3DView(this);
         glView.setCallback(this);
-        root.addView(glView, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        glView.setUseHolography(panel.useHolography());
+
+        View panelOut = panel.outputView(this);
+        if (panelOut != null) {
+            // Lume Pad 2: CNSDK 뷰가 화면을 차지하고, 우리 GL 은 SBS 를 만들어 넘기기만 한다.
+            // 그래도 GL 컨텍스트를 얻으려면 계층 안에 있어야 해서 1x1 로 깔아 둔다.
+            root.addView(panelOut, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            root.addView(glView, new FrameLayout.LayoutParams(1, 1));
+            tapTarget = panelOut;
+        } else {
+            root.addView(glView, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            tapTarget = glView;
+        }
+        panel.attach(this, glView);
 
         // 재생바는 아래, 설정 패널은 오른쪽 — 서로 겹치지 않는다.
         // 둘 다 네비게이션 바 높이만큼 띄운다 (navBarHeight() 주석 참고).
@@ -152,7 +173,7 @@ public class PlayerActivity extends Activity
         root.addView(settingsPanel, new FrameLayout.LayoutParams(
                 dp(300), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END));
 
-        glView.setOnClickListener(new View.OnClickListener() {
+        tapTarget.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 hideSystemUi();      // 네비게이션 바가 올라와 있으면 다시 내린다
                 if (settingsPanel.getVisibility() == View.VISIBLE) {
@@ -1096,6 +1117,7 @@ public class PlayerActivity extends Activity
         super.onPause();
         savePositionNow();
         if (engine != null) engine.pause();
+        if (panel != null) panel.onPause();
         glView.onPause();
     }
 
@@ -1104,6 +1126,7 @@ public class PlayerActivity extends Activity
         super.onResume();
         hideSystemUi();
         glView.onResume();
+        if (panel != null) panel.onResume();
     }
 
     @Override
@@ -1112,6 +1135,7 @@ public class PlayerActivity extends Activity
         ui.removeCallbacks(ticker);
         savePositionNow();
         if (engine != null) { engine.release(); engine = null; }
+        if (panel != null) panel.onDestroy();
     }
 
     private abstract static class SimpleSeek implements SeekBar.OnSeekBarChangeListener {
