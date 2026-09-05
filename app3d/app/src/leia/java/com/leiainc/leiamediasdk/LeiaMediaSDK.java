@@ -7,6 +7,7 @@ import android.util.Log;
 import android.view.Surface;
 
 import com.leiainc.leiamediasdk.interfaces.MonoVideoSurfaceRenderer;
+import com.leiainc.leiamediasdk.interfaces.StereoVideoSurfaceRenderer;
 
 import java.lang.reflect.Constructor;
 
@@ -103,6 +104,31 @@ public final class LeiaMediaSDK {
             return (MonoVideoSurfaceRenderer) c.newInstance(ctx, out, cb);
         } catch (Throwable t) {
             Log.e(TAG, "MonoVideoSurfaceRendererImpl 생성 실패", t);
+            return null;
+        }
+    }
+
+    /**
+     * 진짜 SBS 를 받아 수렴을 다시 잡는 렌더러를 만든다.
+     *
+     * 입력면에 SBS 한 장을 넣으면 되고(모노 변환기와 같은 모양), 출력은 역시
+     * 2타일이라 CNSDK 설정은 그대로다. 시차를 만들지는 않는다 —
+     * 이미 있는 좌우 눈의 수렴점을 장면마다 다시 잡는 것이 이쪽 일이다.
+     *
+     * 인자 셋짜리 생성자를 쓴다. RenderConfig 를 넘기는 쪽도 있지만 그러려면
+     * 서비스 dex 에서 그 클래스를 따로 불러와야 하고, 기본값이면 충분하다.
+     */
+    public StereoVideoSurfaceRenderer createStereoVideoSurfaceRenderer(
+            Context ctx, Surface out, StereoVideoSurfaceRenderer.SurfaceTextureCallback cb) {
+        try {
+            Constructor<?> c = loader
+                    .loadClass("com.leiainc.androidsdk.video.stereo.StereoVideoSurfaceRendererImpl")
+                    .getDeclaredConstructor(Context.class, Surface.class,
+                            StereoVideoSurfaceRenderer.SurfaceTextureCallback.class);
+            c.setAccessible(true);
+            return (StereoVideoSurfaceRenderer) c.newInstance(ctx, out, cb);
+        } catch (Throwable t) {
+            Log.e(TAG, "StereoVideoSurfaceRendererImpl 생성 실패", t);
             return null;
         }
     }
