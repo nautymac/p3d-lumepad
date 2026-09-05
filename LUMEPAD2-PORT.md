@@ -321,3 +321,100 @@ B 에 대한 실기 평가: "인물 입체감이 약하고 얼굴에 뭉개짐�
 
 남은 위험은 **시간적 안정성** — 프레임마다 깊이가 흔들리면 정지 장면도 꿈틀거린다.
 EMA 평활이 필요하고, 그건 아직 시험하지 않았다.
+
+## 2D→3D 를 Leia 엔진으로 (2026-09-05)
+
+시어를 버리고 기기에 깔린 Leia 의 신경망 변환기를 쓴다. 같은 프레임으로 비교한 결과다.
+
+| | 만든 방법 | 평가 |
+|---|---|---|
+| A | 진짜 SBS (게임이 그린 좌우 눈) | 정답 |
+| B | Leia 엔진 (왼쪽 눈만 주고 변환) | **"월등하다", "A 보다 좋다"** |
+| C | 우리 시어 (왼쪽 눈만 주고 변환) | — |
+
+정답보다 낫다는 평이 나온 이상 시어를 고집할 이유가 없다. 시어 코드는 남겨뒀다 —
+ProMa 는 그것으로 간다.
+
+### 엔진을 어떻게 빌려 쓰나
+
+`com.leiainc.media.service` (v0.5.28, 시스템 앱) 안에 다 들어 있다.
+
+```
+res/*.dlc                     모델 7개, 약 330MB
+lib/arm64-v8a/libSNPE.so      SNPE 런타임
+lib/arm64-v8a/libSnpeHtpV73Skel.so   Hexagon 스켈 (V73 = SD8 Gen2)
+com.leiainc.androidsdk.video.mono.MonoVideoSurfaceRendererImpl
+```
+
+`LeiaMediaSDK` 는 **IPC 가 아니다.** `PackageManager` 로 그 APK 경로를 얻어
+`DexClassLoader` 로 열고, 클래스와 네이티브 라이브러리를 **우리 프로세스에서** 돌린다.
+그래서 우리가 재배포하는 바이너리가 없다 — 인터페이스 선언 두 개와 로더 하나가 전부다.
+
+로더 클래스를 `com.leiainc.leiamediasdk` 패키지에 둔 이유가 있다. DexClassLoader 의
+부모가 우리 앱 로더라 클래스 해석이 부모 우선인데, 서비스 쪽 모델 코드가
+`LeiaMediaSDK.getAppWrapper()` 를 부른다. 그 호출이 우리 쪽으로 와야 한다.
+
+### 함정 셋
+
+1. **컨텍스트를 아무거나 넘기면 안 된다.** 구현체가 생성자에서
+   `ctx.getApplicationInfo().nativeLibraryDir` 로 `ADSP_LIBRARY_PATH` 를 잡는다.
+   우리 앱을 가리키면 Hexagon 스켈을 못 찾는다. `createPackageContext` 로 서비스
+   컨텍스트를 만들어 넘긴다. (셰이더와 모델은 구현체가 알아서 서비스 리소스를 연다)
+
+2. **한 서피스에 EGL 윈도우 표면을 둘이 만들 수 없다.** 우리 GL 이 CNSDK 출력면을
+   쥔 채로 넘기면 `eglCreateWindowSurface` 가 `EGL_BAD_ALLOC(0x3003)` 을 낸다.
+   2D 로 정해져 있으면 처음부터 우리가 잡지 않는다.
+
+3. **판별 전 임시값으로 엔진을 만들면 안 된다.** 파일명 추측이 MONO_2D 였다가
+   0.5초 뒤 판별이 SBS 라고 답하면, 만들어지고 있던 엔진과 출력면을 두고 다툰다.
+   확정된 값(판별 결과·저장된 선택·수동 선택)일 때만 패널에 알린다.
+
+### 배치가 맞아떨어진 점
+
+`RenderConfig.getDefaultRenderConfig()` 가 Lume Pad 2 에서 `hTiles=2, vTiles=1` 이다.
+즉 엔진 출력이 우리가 CNSDK 에 넘기던 SBS 와 같은 2타일이라 CNSDK 설정은 그대로다.
+
+```
+2D 소스 : 디코더 ▶ 우리 GL(모노 1920x1200) ▶ Leia 엔진 ▶ 2타일 ▶ CNSDK ▶ 패널
+3D 소스 : 디코더 ▶ 우리 GL(SBS 3840x1200) ─────────────▶ CNSDK ▶ 패널
+```
+
+레터박스·화면비·자막은 여전히 우리 GL 몫이다. 시차만 엔진이 만든다.
+
+실측: 엔진 준비 0.9~1.6초, 추론 프레임당 11~20ms, 깊이 추정 25~30fps,
+입력 640x384 (`MODEL_2D3D_VIDEO_M640`, 런타임 DSP).
+
+## 3D 화면 밝기 (2026-09-05)
+
+3D 모드는 균일 백라이트를 완전히 끄고(`backlight_mode3d_ratio_2d = 0.0`) 회절 광원만
+쓴다. 그래서 같은 설정값에서도 2D 보다 어둡다. 두 가지로 올렸다.
+
+**창 밝기 고정** (코드에 들어 있음). 적응형 밝기가 시스템 설정 252 인데 203 까지
+내려놓고 있었다. 재생 중에는 창 속성으로 최대에 묶는다. 화면을 벗어나면 저절로 풀린다.
+
+**회절 광원 비율 1.2 → 1.6** (기기 설정, 코드 아님). 실기 평가 "훨씬 밝다".
+
+```
+adb shell settings put system backlight_mode3d_ratio_3d 1.6
+adb reboot        # ← 이게 필요하다
+```
+
+**재부팅이 반드시 필요하다.** Leia 의 정식 API(`LeiaLightsManagerV8.setBacklightRatios`)
+도 같은 `Settings.System` 키에 쓰기만 하고, 백라이트 서비스는 시작할 때 한 번 읽는다.
+쓴 직후에 `getBacklightRatios` 로 물으면 서비스는 여전히 옛 값을 답한다.
+서비스를 죽여서 다시 읽게 하려 들면 백라이트가 3D 에 물린 채 남아 화면이 먹는다.
+
+되돌리려면 `1.2` 를 쓰고 다시 재부팅한다. 원래 값:
+`mode3d_ratio_3d=1.2`, `mode3d_ratio_2d=0.0`, `mode2d_ratio_3d=0.25`, `colormode_3d=7`.
+
+진단 도구: `LeiaLightsActivity` — 서비스가 실제로 들고 있는 값을 묻는다.
+Settings 값과 서비스 값을 나란히 찍어주므로 "썼는데 반영이 안 된다" 를 바로 가른다.
+
+```
+adb shell appops set com.nauty.p3d WRITE_SETTINGS allow
+adb shell am start -n com.nauty.p3d/com.nauty.p3d.leia.LeiaLightsActivity
+adb shell am start -n com.nauty.p3d/com.nauty.p3d.leia.LeiaLightsActivity --ef r3d 1.6
+```
+
+한동안 이 값이 안 듣는다고 판단했는데 틀렸다. 재부팅을 안 했고, 그때 본 검은 화면은
+밝기가 아니라 위의 함정 3(서피스 다툼)이었다.
