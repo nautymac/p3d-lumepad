@@ -134,6 +134,11 @@ shear method we used before.
 The full engineering record is in [`LUMEPAD2-PORT.md`](LUMEPAD2-PORT.md)
 (Korean), wrong turns included.
 
+**To put 3D into another app**, see [`MOONLIGHT-LUMEPAD2.md`](MOONLIGHT-LUMEPAD2.md)
+(Korean). Using Moonlight as the worked example, it covers getting CNSDK into an app
+and the four traps we hit on real hardware. This panel has no fixed pattern, so
+nothing outside an app can turn its output into 3D — the app that draws must weave.
+
 ---
 
 ## Building it yourself

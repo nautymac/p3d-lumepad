@@ -124,6 +124,11 @@
 자세한 기록은 [`LUMEPAD2-PORT.md`](LUMEPAD2-PORT.md) 에 있다 — 잘못 짚었던
 진단까지 그대로 남겨뒀다.
 
+**다른 앱에 3D 를 붙이려면** [`MOONLIGHT-LUMEPAD2.md`](MOONLIGHT-LUMEPAD2.md) 를 보라.
+Moonlight 을 예로 들어, CNSDK 를 앱에 넣는 법과 실기에서 물린 함정 넷을 정리했다.
+이 패널은 고정 패턴이 아니라서 밖에서 남의 화면을 3D 로 바꿔줄 방법이 없다 —
+그리는 앱 자신이 위빙을 해야 한다.
+
 ---
 
 ## 직접 빌드하려면
