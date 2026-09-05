@@ -25,6 +25,14 @@
              CNSDK 가 알아서 쓰지만, 없는 기기에서 죽지 않게 required=false. -->
         <uses-library android:name="com.leia.android.lights" android:required="false"/>
 
+        <!-- 정지 SBS 이미지 비교용 시험 도구. 같은 프레임을 여러 방식으로 합성해
+             번갈아 띄워 보면 2D→3D 방식 차이가 눈으로 바로 갈린다. -->
+        <activity
+            android:name="com.nauty.p3d.leia.LeiaImageActivity"
+            android:exported="true"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+
         <activity
             android:name="com.nauty.p3d.leia.LeiaSpikeActivity"
             android:exported="true"

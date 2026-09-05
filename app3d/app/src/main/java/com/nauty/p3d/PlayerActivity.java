@@ -759,6 +759,29 @@ public class PlayerActivity extends Activity
         return Math.max(0, Math.min(200, Math.round(a * 100f) - 100));
     }
 
+    private void dumpFrame(final int ms) {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                android.media.MediaMetadataRetriever r = new android.media.MediaMetadataRetriever();
+                try {
+                    r.setDataSource(PlayerActivity.this, pendingUri);
+                    Bitmap bmp = r.getFrameAtTime(ms * 1000L,
+                            android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                    if (bmp == null) { Log.e(TAG, "프레임을 못 얻었다"); return; }
+                    File out = new File(Environment.getExternalStorageDirectory(), "p3d_frame.png");
+                    java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                    fos.close();
+                    Log.i(TAG, "프레임 저장 " + out + "  " + bmp.getWidth() + "x" + bmp.getHeight());
+                } catch (Throwable t) {
+                    Log.e(TAG, "프레임 저장 실패", t);
+                } finally {
+                    try { r.release(); } catch (Exception ignored) { }
+                }
+            }
+        }).start();
+    }
+
     private void cycleAspect() {
         float cur = glView.getAspectOverride();
         int i = 0;
@@ -1059,6 +1082,11 @@ public class PlayerActivity extends Activity
 
         // 디버그: --ei depth N 이면 2D→3D 시차 강도를 N% 로 시작한다 (슬라이더와 같은 단위).
         // 시어 램프를 측정하려면 값을 손으로 맞추지 않고 고정할 수 있어야 한다.
+        // 디버그: --ei dumpframe <ms> 면 그 지점의 원본 프레임을 PNG 로 저장한다.
+        // 깊이 추정 실험처럼 화면 처리(레터박스/위빙)를 거치지 않은 소스가 필요할 때 쓴다.
+        int dumpMs = getIntent().getIntExtra("dumpframe", -1);
+        if (dumpMs >= 0) dumpFrame(dumpMs);
+
         float aspectX = getIntent().getFloatExtra("aspect", Float.NaN);
         if (!Float.isNaN(aspectX)) glView.setAspectOverride(aspectX);
 

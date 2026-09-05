@@ -448,7 +448,17 @@ public class Stereo3DView extends GLSurfaceView {
                 //
                 // 영점을 세로 중앙에 두면 위는 뒤로, 아래는 앞으로 갈리면서
                 // 화면 전체가 슬라이더에 반응하고 한쪽 눈의 최대 이동량도 절반이 된다.
-                shearSlope = 0.0000122f * eyeDisplayWidth() * depth;
+                //
+                // 기울기가 음수인 이유: 원본 상수를 그대로 옮겼더니 깊이 순서가 거꾸로였다.
+                // 진짜 SBS 영상의 좌우 시차를 블록 매칭으로 재보면 (눈당 1920px 기준)
+                //     위 +2px  ->  아래 -8px      지면이 앞, 하늘이 뒤   ← 실제
+                // 인데 우리 출력은
+                //     위 -4px  ->  아래 +4px      하늘이 앞, 지면이 뒤   ← 반대였다
+                // 셰이더가 t.x += (shearTop - v*shearSlope) 로 샘플링 위치를 옮기므로
+                // 양수는 그 눈의 그림을 왼쪽으로 민다. v=1 이 화면 아래이니 원래 식은
+                // 위를 앞으로 보내고 있었다. 뒤집어 재측정하니 위 +8 -> 아래 -8 로
+                // 실제와 방향이 맞았고, 실기에서도 눈에 띄게 자연스러워졌다.
+                shearSlope = -0.0000122f * eyeDisplayWidth() * depth;
                 shearTop   = shearSlope * SHEAR_PIVOT;
             }
 
