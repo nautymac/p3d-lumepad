@@ -77,6 +77,9 @@ public class Stereo3DView extends GLSurfaceView {
      */
     private volatile boolean extSingleView = false;
 
+    /** 마지막으로 내보낸 뒤 그림에 영향을 주는 무언가가 바뀌었는지. */
+    private volatile boolean stateDirty = true;
+
     /**
      * 렌티큘러 마스크를 쓸지. ProMa 는 true(기본), Lume Pad 2 는 false —
      * 그 기기에는 libholography 가 만드는 마스크가 맞지 않고 쓸 일도 없다.
@@ -145,15 +148,25 @@ public class Stereo3DView extends GLSurfaceView {
     }
 
     public void setCallback(Callback cb)        { callback = cb; }
-    public void setSourceFormat(SourceFormat f) { sourceFormat = f; requestRender(); }
-    public void setOutput(Output o)             { output = o;       requestRender(); }
-    public void setSwapLR(boolean s)            { swapLR = s;       requestRender(); }
-    public void setDepth(float d)               { depth = d;        requestRender(); }
-    public void setBottomCut(float c)           { bottomCut = c;    requestRender(); }
+
+    /**
+     * 내보낼 그림이 달라졌다.
+     *
+     * 안전망(감시견)이 부르는 requestRender 와 구분해야 한다. 외부 타깃으로 나가는
+     * 경로에서는 <b>같은 그림을 두 번 내보내면 안 되기 때문</b>이다. Leia 엔진은 들어온
+     * 프레임 수로 시간을 세서 수렴을 추정하고 RGB 를 몇 프레임 늦춰 깊이와 맞추는데,
+     * 중복 프레임이 섞이면 그 추정이 널뛰어 화면이 좌우로 흔들리고 잔상이 남는다.
+     */
+    private void contentChanged() { stateDirty = true; requestRender(); }
+    public void setSourceFormat(SourceFormat f) { sourceFormat = f; contentChanged(); }
+    public void setOutput(Output o)             { output = o;       contentChanged(); }
+    public void setSwapLR(boolean s)            { swapLR = s;       contentChanged(); }
+    public void setDepth(float d)               { depth = d;        contentChanged(); }
+    public void setBottomCut(float c)           { bottomCut = c;    contentChanged(); }
 
     public void setPerOffset(float p) {
         perOffset = Math.max(-0.015f, Math.min(0.015f, p));
-        requestRender();
+        contentChanged();
     }
 
     /**
@@ -161,7 +174,7 @@ public class Stereo3DView extends GLSurfaceView {
      * 0 이면 소스 해상도에서 계산한 값을 쓰고 (기본), {@link #ASPECT_FILL} 이면
      * 화면 비율에 맞춰 늘려 레터박스를 없앤다.
      */
-    public void setAspectOverride(float a) { aspectOverride = a; requestRender(); }
+    public void setAspectOverride(float a) { aspectOverride = a; contentChanged(); }
     public float getAspectOverride()       { return aspectOverride; }
 
     /**
@@ -194,7 +207,7 @@ public class Stereo3DView extends GLSurfaceView {
         queueEvent(new Runnable() {
             @Override public void run() { renderer.releaseExternal(); done.countDown(); }
         });
-        requestRender();
+        contentChanged();
         try {
             done.await(1000, java.util.concurrent.TimeUnit.MILLISECONDS);
         } catch (InterruptedException ignored) {
@@ -205,14 +218,14 @@ public class Stereo3DView extends GLSurfaceView {
     private void setExternalTarget(Surface s, int w, int h, boolean single) {
         extSingleView = single;
         extTarget = s; extW = w; extH = h;
-        requestRender();
+        contentChanged();
     }
 
     /** 렌티큘러 마스크 사용 여부. GL 표면이 만들어지기 전에 정해야 한다. */
     public void setUseHolography(boolean v) { useHolography = v; }
 
     public void setVideoSize(int w, int h) {
-        if (w > 0 && h > 0) { videoW = w; videoH = h; requestRender(); }
+        if (w > 0 && h > 0) { videoW = w; videoH = h; contentChanged(); }
     }
 
     /**
@@ -227,15 +240,15 @@ public class Stereo3DView extends GLSurfaceView {
             pendingSub = b;
             subDirty = true;
         }
-        requestRender();
+        contentChanged();
     }
 
-    public void setSubtitleDepth(float px) { subtitleDepth = px; requestRender(); }
+    public void setSubtitleDepth(float px) { subtitleDepth = px; contentChanged(); }
 
     /** 하단 여백 비율 (0 = 바닥, 0.3 = 화면 높이의 30% 위). */
     public void setSubtitleY(float frac) {
         subtitleY = Math.max(0f, Math.min(0.45f, frac));
-        requestRender();
+        contentChanged();
     }
     public float getSubtitleY() { return subtitleY; }
     public float getSubtitleDepth() { return subtitleDepth; }
@@ -366,14 +379,25 @@ public class Stereo3DView extends GLSurfaceView {
                 // 외부 타깃이 없어 FBO 가 1x1 로 잡힌 뒤 다시 만들어지지 않는다
                 // (뷰 크기가 안 변하니 onSurfaceChanged 가 다시 오지 않는다).
                 // 그러면 1x1 을 화면 전체로 늘려 뿌리게 된다.
-                if (fbo == null || fbo.width != extW || fbo.height != extH) {
+                boolean resized = (fbo == null || fbo.width != extW || fbo.height != extH);
+                if (resized) {
                     if (fbo != null) fbo.release();
                     fbo = new Fbo(extW, extH);
                     GlUtil.logi("FBO 를 외부 타깃 크기로 재생성 " + extW + "x" + extH);
                 }
-                // 외부(CNSDK)로 SBS 를 넘긴다. 인터레이스는 저쪽이 한다.
-                renderSbsToFbo();
-                drawToExternal();
+                // 새 그림이 있을 때만 내보낸다.
+                //
+                // 감시견이 300ms 마다 깨우는데 그때마다 내보내면 같은 그림이 중복으로
+                // 나간다. 받는 쪽(Leia 엔진)은 들어온 프레임 수로 시간을 세기 때문에
+                // 그 중복이 수렴 추정을 흔들고 잔상을 만든다 (contentChanged 주석 참고).
+                // CNSDK 로 직결일 때도 낭비일 뿐이라 같은 규칙으로 둔다.
+                boolean fresh = (n > 0) || subChanged || stateDirty || resized;
+                stateDirty = false;
+                if (fresh) {
+                    // 외부(CNSDK 또는 Leia 엔진)로 넘긴다. 인터레이스는 저쪽이 한다.
+                    renderSbsToFbo();
+                    drawToExternal();
+                }
             } else if (out == Output.TWO_D) {
                 drawMono();
             } else {

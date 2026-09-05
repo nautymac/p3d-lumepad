@@ -324,7 +324,11 @@ public final class Panel {
             Object e = engine;
             try {
                 if (e instanceof MonoVideoSurfaceRenderer) {
-                    ((MonoVideoSurfaceRenderer) e).setGainMultiplier(BASE_GAIN * strength);
+                    MonoVideoSurfaceRenderer r = (MonoVideoSurfaceRenderer) e;
+                    r.setGainMultiplier(BASE_GAIN * strength);
+                    // 자동 수렴은 Leia 기본값 그대로 켜둔다. 한때 화면이 좌우로 흔들리는
+                    // 원인으로 의심해 꺼봤지만 아니었다 — 그 영상이 좌우 비교 화면이라
+                    // 2D→3D 신경망에 최악의 입력이었던 것이다.
                 } else if (e instanceof StereoVideoSurfaceRenderer) {
                     StereoVideoSurfaceRenderer s = (StereoVideoSurfaceRenderer) e;
                     s.setGain(strength);
