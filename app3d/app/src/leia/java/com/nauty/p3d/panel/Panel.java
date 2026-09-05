@@ -352,6 +352,13 @@ public final class Panel {
         // --- LeiaSDK.Delegate ---
 
         @Override public void didInitialize(LeiaSDK s) {
+            // 이전 세션이 백라이트를 3D 로 남긴 채 끊겼을 수 있다.
+            //
+            // 정상 종료 경로(onPause)는 2D 로 되돌리지만 강제 종료나 비정상 종료는
+            // 그걸 건너뛴다. 그렇게 남은 상태에서 이어받으면 위빙이 어긋난 채로
+            // 시작되고, 그때 증상이 잔상·크로스토크로 나타난다. 켜기 전에 한 번
+            // 확실히 내려서 상태를 초기화한다.
+            try { s.enableBacklight(false); } catch (Throwable ignored) { }
             ready = true;
             apply();
         }
