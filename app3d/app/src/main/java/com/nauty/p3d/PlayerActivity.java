@@ -220,7 +220,10 @@ public class PlayerActivity extends Activity
             // 파일명은 참고만 한다 — 틀리게 붙어 있는 경우가 흔하다.
             // 판별이 끝날 때까지의 임시값으로만 쓰고, 결과가 나오면 픽셀 판별로 덮어쓴다.
             SourceFormat byName = SourceFormat.fromName(mediaKey);
-            applySourceFormat(byName != null ? byName : SourceFormat.MONO_2D);
+            // 판별이 끝날 때까지의 임시값이다. 패널에는 알리지 않는다 —
+            // 이 추측만 보고 Leia 변환기를 만들기 시작하면, 0.5초 뒤 판별이
+            // 3D 라고 답할 때 이미 만들어지고 있는 엔진과 출력면을 두고 다툰다.
+            glView.setSourceFormat(byName != null ? byName : SourceFormat.MONO_2D);
             startStereoDetection();
         }
 

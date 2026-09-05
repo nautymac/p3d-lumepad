@@ -141,15 +141,28 @@ public final class Panel {
             if (mono == m) return;
             mono = m;
             if (m) ensureMl();
+            else if (mlStarting) {
+                // 아직 만들고 있다. 지금 출력면을 잡으면 곧 완성될 엔진과 다툰다.
+                // 완성되는 쪽에서 mono 가 꺼진 것을 보고 정리한다.
+                Log.i(TAG, "변환기 생성 중에 3D 로 바뀌었다 — 완성 후 정리한다");
+            }
             else {
                 // 3D 로 돌아간다. 변환기가 쥐고 있는 출력면을 돌려받아야 한다.
-                if (ml != null) {
-                    try { ml.release(); } catch (Throwable ignored) { }
-                    ml = null;
-                    if (mlIn != null) { mlIn.release(); mlIn = null; }
-                }
-                if (gl != null && out != null) gl.setExternalSbsTarget(out, FRAME_W, FRAME_H);
+                releaseMl();
+                restoreSbsTarget();
             }
+        }
+
+        private void releaseMl() {
+            if (ml != null) {
+                try { ml.release(); } catch (Throwable ignored) { }
+                ml = null;
+            }
+            if (mlIn != null) { mlIn.release(); mlIn = null; }
+        }
+
+        private void restoreSbsTarget() {
+            if (gl != null && out != null) gl.setExternalSbsTarget(out, FRAME_W, FRAME_H);
         }
 
         @Override public void setConversionStrength(float v) {
@@ -204,6 +217,10 @@ public final class Panel {
                 if (r == null) { Log.e(TAG, "Leia 변환기 생성 실패 — 시어로 간다"); return; }
                 ml = r;
                 Log.i(TAG, "Leia 변환기 준비 " + (System.currentTimeMillis() - t0) + "ms");
+
+                // 만드는 1초 사이에 3D 로 바뀌었을 수 있다. 그대로 두면 이 엔진이
+                // 출력면을 쥐고 있어 우리 GL 이 EGL 표면을 만들지 못한다.
+                if (!mono) { releaseMl(); restoreSbsTarget(); return; }
                 try {
                     r.setGainMultiplier(BASE_GAIN * strength);
                     r.setAutoConvergence(true);
@@ -290,8 +307,7 @@ public final class Panel {
             if (view != null) {
                 try { view.releaseInputViewsAsset(); } catch (Throwable ignored) { }
             }
-            if (ml != null) { try { ml.release(); } catch (Throwable ignored) { } ml = null; }
-            if (mlIn != null) { mlIn.release(); mlIn = null; }
+            releaseMl();
             if (out != null) { out.release(); out = null; }
             try { LeiaSDK.shutdownSDK(); } catch (Throwable ignored) { }
         }

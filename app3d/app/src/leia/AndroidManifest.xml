@@ -6,6 +6,11 @@
     -->
     <uses-permission android:name="android.permission.CAMERA"/>
 
+    <!-- 백라이트 비율은 Settings.System 에 들어간다. Leia 의 정식 API 도
+         내부에서 Settings.System.canWrite 를 확인하고 거기에 쓴다.
+         adb 로 한 번 허용해야 한다: appops set com.nauty.p3d WRITE_SETTINGS allow -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
+
     <!--
       CNSDK 는 시작하면서 Leia 시스템 패키지 두 개를 조회한다. Android 11+ 의 패키지
       가시성 제한으로 조회가 실패하면 예외를 지우지 않고 다음 JNI 호출로 넘어가
@@ -27,6 +32,11 @@
              (/system/etc/permissions/com.leia.android.lights.xml).
              CNSDK 가 알아서 쓰지만, 없는 기기에서 죽지 않게 required=false. -->
         <uses-library android:name="com.leia.android.lights" android:required="false"/>
+
+        <!-- 백라이트 비율을 서비스에 묻고 바꾸는 시험 도구. -->
+        <activity
+            android:name="com.nauty.p3d.leia.LeiaLightsActivity"
+            android:exported="true"/>
 
         <!-- Leia 자신의 2D→3D 엔진(미디어 서비스)이 우리 프로세스에서 도는지
              확인하는 시험 도구. LeiaMediaSDK 주석 참고. -->
