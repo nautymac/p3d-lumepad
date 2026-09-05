@@ -2,6 +2,8 @@ package com.nauty.p3d.panel;
 
 import android.app.Activity;
 import android.graphics.SurfaceTexture;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
 import android.view.View;
@@ -44,6 +46,16 @@ public final class Panel {
         private Surface out;
 
         private volatile boolean ready  = false;   // didInitialize 는 비동기로 온다
+
+        // 재생 시작을 패널이 자리잡을 때까지 붙잡아 두기 위한 것들.
+        private final Handler main = new Handler(Looper.getMainLooper());
+        private Runnable pendingReady;
+        private boolean  tracking = false;
+
+        /** 얼굴추적이 끝내 시작되지 않아도 재생은 시작돼야 한다. */
+        private static final long READY_TIMEOUT_MS = 2000;
+        /** 추적이 붙고도 첫 얼굴 좌표가 오기까지 조금 더 걸린다. */
+        private static final long READY_SETTLE_MS  = 250;
         private boolean wantActive = false;
         private boolean wantThreeD = true;    // 플레이어의 출력 설정(3D/2D)
 
@@ -95,6 +107,20 @@ public final class Panel {
 
         @Override public boolean useHolography() { return false; }
 
+        @Override public void whenReady(Runnable r) {
+            if (tracking) { r.run(); return; }
+            pendingReady = r;
+            main.postDelayed(fireReady, READY_TIMEOUT_MS);
+        }
+
+        private final Runnable fireReady = new Runnable() {
+            @Override public void run() {
+                Runnable r = pendingReady;
+                pendingReady = null;
+                if (r != null) r.run();
+            }
+        };
+
         /**
          * 2D 출력이면 백라이트를 2D 로 되돌린다.
          *
@@ -114,7 +140,12 @@ public final class Panel {
             ready = true;
             apply();
         }
-        @Override public void onFaceTrackingStarted(LeiaSDK s)    { Log.i(TAG, "얼굴추적 시작"); }
+        @Override public void onFaceTrackingStarted(LeiaSDK s) {
+            Log.i(TAG, "얼굴추적 시작");
+            tracking = true;
+            main.removeCallbacks(fireReady);
+            main.postDelayed(fireReady, READY_SETTLE_MS);
+        }
         @Override public void onFaceTrackingStopped(LeiaSDK s)    { Log.i(TAG, "얼굴추적 정지"); }
         @Override public void onFaceTrackingFatalError(LeiaSDK s) { Log.e(TAG, "얼굴추적 오류"); }
 

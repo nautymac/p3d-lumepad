@@ -27,6 +27,15 @@ public interface PanelBackend {
      */
     View outputView(Activity a);
 
+    /**
+     * 패널이 3D 를 제대로 낼 준비가 되면 실행한다. 이미 준비돼 있으면 즉시.
+     *
+     * Lume Pad 2 는 백라이트가 3D 로 넘어가고 얼굴추적이 붙기까지 1초쯤 걸린다.
+     * 그 전에 그림을 띄우면 기본 시점으로 짜다가 추적이 붙는 순간 위빙이 제자리를
+     * 찾으면서 화면이 한 번 튄다. 재생을 그때까지 미루면 그 튐이 보이지 않는다.
+     */
+    void whenReady(Runnable r);
+
     /** GL 뷰를 만든 직후. 외부 출력이 필요하면 여기서 연결한다. */
     void attach(Activity a, Stereo3DView gl);
 

@@ -1041,7 +1041,6 @@ public class PlayerActivity extends Activity
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putString(KEY_ENGINE + mediaKey, next.name()).apply();
 
-        startPlayback();
         if (at > 0) pendingResumeMs = at;
 
         Toast.makeText(this, next == VideoEngine.Kind.EXO
@@ -1055,7 +1054,15 @@ public class PlayerActivity extends Activity
     public void onSurfaceReady(Surface surface, SurfaceTexture surfaceTexture) {
         videoSurface        = surface;
         videoSurfaceTexture = surfaceTexture;
-        startPlayback();
+        // 패널이 3D 를 낼 준비가 될 때까지 재생을 미룬다.
+        // (PanelBackend.whenReady 주석 참고 — ProMa 는 즉시 실행된다)
+        if (panel != null) {
+            panel.whenReady(new Runnable() {
+                @Override public void run() { startPlayback(); }
+            });
+        } else {
+            startPlayback();
+        }
     }
 
     private void startPlayback() {

@@ -100,6 +100,22 @@ public final class StereoDetect {
 
             if (sbs == 0 && tb == 0 && mono == 0) return null;   // 쓸만한 표본이 없었다
 
+            // 과반이 아니면 바꾸지 않는다.
+            //
+            // 판별은 재생이 시작된 뒤에 끝나서, 결과가 나오면 배치를 갈아끼운다.
+            // 그 교체가 화면에 그대로 보이기 때문에 어중간한 확신으로 바꾸면
+            // 재생 2~3초쯤에 화면이 한 번 튀는 것으로 나타난다.
+            //
+            // 실제로 그런 파일이 있다. IMG_1609(full-SBS 홈비디오)는 표본을 다시
+            // 뽑을 때마다 좌우차/대비가 0.10 ~ 0.61 사이로 널뛰어 SBS=2 2D=2 로
+            // 갈리기도 하고 SBS=4 가 나오기도 한다. 이런 파일은 임시값(파일명)을
+            // 그대로 두는 편이 낫다 — 틀릴 확률은 반반인데 튐은 확실히 보인다.
+            int used = sbs + tb + mono;
+            if (sbs * 2 <= used && tb * 2 <= used && mono * 2 <= used) {
+                Log.i(TAG, "  과반이 아니라 판별을 보류한다");
+                return null;
+            }
+
             if (sbs > tb && sbs >= mono) return sbsVariant(aspW, aspH);
             if (tb > sbs && tb >= mono)  return tbVariant(aspW, aspH);
             return SourceFormat.MONO_2D;
