@@ -398,11 +398,10 @@ public final class Panel {
                         Log.i(TAG, "얼굴추적 " + (started ? "켜짐" : "꺼짐")
                                 + "  얼굴 " + (f == null ? "없음"
                                     : String.format(java.util.Locale.US, "%.0f,%.0f,%.0f", f.x, f.y, f.z)));
-                        if (!started) {
-                            Log.e(TAG, "얼굴추적이 멎었다 — 다시 켠다");
-                            s.enableFaceTracking(false);
-                            s.enableFaceTracking(true);
-                        }
+                        // 멎어 있어도 여기서 되살리려 들지 않는다.
+                        //
+                        // 5초마다 껐다 켜봤더니 서비스가 카메라를 잡을 틈이 없어
+                        // 영영 못 붙었다 — 고치려던 것을 더 망가뜨렸다. 관찰만 한다.
                     } catch (Throwable t) {
                         Log.e(TAG, "얼굴추적 상태 확인 실패", t);
                     }
