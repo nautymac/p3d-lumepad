@@ -359,9 +359,57 @@ public final class Panel {
             // 시작되고, 그때 증상이 잔상·크로스토크로 나타난다. 켜기 전에 한 번
             // 확실히 내려서 상태를 초기화한다.
             try { s.enableBacklight(false); } catch (Throwable ignored) { }
+
+            // NoFaceMode 를 끈다.
+            //
+            // CNSDK 는 얼굴이 잠깐 안 보이면 백라이트를 꺼서 2D 로 되돌린다.
+            // 그러면 위빙된 그림이 3D 백라이트 없이 그대로 나가서 좌우 뷰가 섞여
+            // 보인다 — 화면이 갑자기 무너지는 것처럼 느껴진다.
+            //
+            // 영상을 보는 동안에는 이게 켜질 이유가 없다. 고개를 잠깐 돌리거나
+            // 조명이 바뀌어 추적이 순간 끊기는 것만으로도 발동한다.
+            // 실기 로그: "NoFaceMode Backlight attempting to turn off"
+            try { s.enableNoFaceMode(false); } catch (Throwable ignored) { }
             ready = true;
             apply();
         }
+
+        /**
+         * 얼굴추적이 살아 있는지 주기적으로 확인하고, 죽어 있으면 되살린다.
+         *
+         * 이 패널은 8방향 뷰를 보는 사람 눈에 맞춰 조향한다. 추적이 멎으면 마지막
+         * 위치로 계속 짜기 때문에 조금만 움직여도 좌우 뷰가 엉뚱한 눈에 들어가고,
+         * 그게 잔상으로 보인다. 실기에서 실제로 그렇게 됐다 —
+         * HeadTracking 이 카메라 프레임을 못 받아(NO_BUFFER_AVAILABLE) 멎었는데
+         * 화면만 보고는 원인을 알 수 없었고 재부팅으로만 회복됐다.
+         *
+         * 얼굴 좌표도 같이 남긴다. 증상이 나올 때 추적이 살아 있었는지 아닌지가
+         * 로그에 남아야 다음에 헤매지 않는다.
+         */
+        private static final long TRACK_CHECK_MS = 5000;
+
+        private final Runnable trackWatch = new Runnable() {
+            @Override public void run() {
+                LeiaSDK s = sdk;
+                if (s != null && wantActive && wantThreeD) {
+                    try {
+                        boolean started = s.isFaceTrackingStarted();
+                        com.leia.core.Vector3 f = s.getPrimaryFace();
+                        Log.i(TAG, "얼굴추적 " + (started ? "켜짐" : "꺼짐")
+                                + "  얼굴 " + (f == null ? "없음"
+                                    : String.format(java.util.Locale.US, "%.0f,%.0f,%.0f", f.x, f.y, f.z)));
+                        if (!started) {
+                            Log.e(TAG, "얼굴추적이 멎었다 — 다시 켠다");
+                            s.enableFaceTracking(false);
+                            s.enableFaceTracking(true);
+                        }
+                    } catch (Throwable t) {
+                        Log.e(TAG, "얼굴추적 상태 확인 실패", t);
+                    }
+                }
+                main.postDelayed(this, TRACK_CHECK_MS);
+            }
+        };
 
         @Override public void onFaceTrackingStarted(LeiaSDK s) {
             Log.i(TAG, "얼굴추적 시작");
@@ -393,6 +441,8 @@ public final class Panel {
         public void onResume() {
             wantActive = true;
             if (view != null) view.onResume();
+            main.removeCallbacks(trackWatch);
+            main.postDelayed(trackWatch, TRACK_CHECK_MS);
             if (sdk != null) { try { sdk.onResume(); } catch (Throwable ignored) { } }
             apply();
         }
@@ -402,6 +452,7 @@ public final class Panel {
             wantActive = false;
             apply();
             if (sdk != null) { try { sdk.onPause(); } catch (Throwable ignored) { } }
+            main.removeCallbacks(trackWatch);
             if (view != null) view.onPause();
         }
 
