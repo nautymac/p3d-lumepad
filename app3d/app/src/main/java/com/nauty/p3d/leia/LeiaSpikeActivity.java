@@ -99,7 +99,6 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
         // GL 컨텍스트를 얻으려면 계층에 들어 있어야 한다. 1x1 로 깔아 둔다.
         // 마스크는 쓰지 않는다 — 이 패널에는 맞지 않고 위빙은 CNSDK 가 한다.
         stereo = new Stereo3DView(this);
-        stereo.setUseHolography(false);
         stereo.setSourceFormat(fmt);
         stereo.setCallback(new Stereo3DView.Callback() {
             @Override public void onSurfaceReady(Surface s, SurfaceTexture st) {

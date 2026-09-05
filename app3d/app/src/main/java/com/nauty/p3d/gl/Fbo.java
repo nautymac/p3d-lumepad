@@ -2,7 +2,7 @@ package com.nauty.p3d.gl;
 
 import android.opengl.GLES20;
 
-/** 좌/우 뷰를 나란히(SBS) 담는 오프스크린 타깃. 원본 com.future.Holography.a 와 같은 역할. */
+/** 좌/우 뷰를 나란히(SBS) 담는 오프스크린 타깃. */
 public class Fbo {
     private int fbo, tex, rbo;
     public int width, height;

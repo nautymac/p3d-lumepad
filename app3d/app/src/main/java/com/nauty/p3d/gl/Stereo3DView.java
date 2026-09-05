@@ -10,7 +10,6 @@ import android.os.Looper;
 import android.util.AttributeSet;
 import android.view.Surface;
 
-import com.future.Holography.Holography;
 import com.nauty.p3d.SourceFormat;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -93,12 +92,6 @@ public class Stereo3DView extends GLSurfaceView {
     /** 마지막으로 내보낸 뒤 그림에 영향을 주는 무언가가 바뀌었는지. */
     private volatile boolean stateDirty = true;
 
-    /**
-     * 렌티큘러 마스크를 쓸지. ProMa 는 true(기본), Lume Pad 2 는 false —
-     * 그 기기에는 libholography 가 만드는 마스크가 맞지 않고 쓸 일도 없다.
-     */
-    private volatile boolean useHolography = true;
-
     /** 자막을 화면 앞쪽으로 띄우는 시차(화면 px). 클수록 앞으로 나온다. */
     private volatile float subtitleDepth = 0f;
 
@@ -110,16 +103,6 @@ public class Stereo3DView extends GLSurfaceView {
     private boolean subDirty;        // subLock 으로 보호
 
     private Callback callback;
-
-    /**
-     * libholography 는 프로세스 전역 상태다 (정적 JNI + 네이티브 전역 버퍼).
-     * 초기화 여부를 Renderer 인스턴스 필드로 추적하면, 액티비티가 재생성될 때
-     * 새 인스턴스가 "초기화 안 됨" 으로 보고 deinit 없이 HolographyInit 을 다시 부른다.
-     * 그러면 네이티브가 마스크를 전부 0 으로 읽어와 인터레이스가 사라진다
-     * (증상: 목록으로 나갔다 다른 파일을 열면 3D 가 안 됨. 앱을 완전히 죽여야 복구).
-     * 그래서 프로세스 단위로 추적한다.
-     */
-    private static boolean sHolographyInited = false;
 
     private final Renderer renderer;
 
@@ -251,9 +234,6 @@ public class Stereo3DView extends GLSurfaceView {
         contentChanged();
     }
 
-    /** 렌티큘러 마스크 사용 여부. GL 표면이 만들어지기 전에 정해야 한다. */
-    public void setUseHolography(boolean v) { useHolography = v; }
-
     public void setVideoSize(int w, int h) {
         if (w > 0 && h > 0) { videoW = w; videoH = h; contentChanged(); }
     }
@@ -324,7 +304,6 @@ public class Stereo3DView extends GLSurfaceView {
         private SurfaceTexture surfaceTexture;
         private final float[] stMatrix = new float[16];
         private SourceRenderer src;
-        private InterlaceRenderer interlace;
         private BlitRenderer blit;
         private SubtitleRenderer subs;
         /** SBS 를 남의 서피스로 내보낼 때 쓰는 두 번째 EGL 서피스 (Lume Pad 2). */
@@ -352,7 +331,6 @@ public class Stereo3DView extends GLSurfaceView {
             surfaceTexture.setOnFrameAvailableListener(this);
 
             src       = new SourceRenderer(getContext());
-            interlace = new InterlaceRenderer(getContext());
             blit      = new BlitRenderer(getContext());
             subs      = new SubtitleRenderer();
 
@@ -373,26 +351,12 @@ public class Stereo3DView extends GLSurfaceView {
             surfaceH = h;
 
             // 외부로 내보낼 때는 FBO 가 곧 내보낼 프레임이므로 그 크기로 만든다.
-            // 우리가 인터레이스할 때는 지금까지대로 화면 크기.
+            // 아직 외부 타깃이 없으면 화면 크기로 잡아 두고, 붙는 순간 다시 만든다.
             int fw = extTarget != null && extW > 0 ? extW : w;
             int fh = extTarget != null && extH > 0 ? extH : h;
             if (fbo != null) fbo.release();
             fbo = new Fbo(fw, fh);
             GlUtil.logi("surface " + w + "x" + h + ", FBO " + fw + "x" + fh);
-
-            if (!useHolography) return;   // Lume Pad 2 등: 마스크를 쓰지 않는다
-
-            // 반드시 deinit -> init 순서. 이전 액티비티가 남긴 상태가 있으면 먼저 정리한다.
-            synchronized (Stereo3DView.class) {
-                if (sHolographyInited) {
-                    Holography.deinitHolography();
-                    sHolographyInited = false;
-                    GlUtil.logi("이전 Holography 상태 해제");
-                }
-                Holography.HolographyInit(w, h);
-                sHolographyInited = true;
-            }
-            GlUtil.logi("HolographyInit 완료");
         }
 
         @Override
@@ -459,20 +423,17 @@ public class Stereo3DView extends GLSurfaceView {
             } else if (out == Output.TWO_D) {
                 drawMono();
             } else {
+                // 외부 타깃이 아직 없는 동안(패널이 CNSDK 표면을 만드는 중)의 자리다.
+                // 만들어 둔 SBS 를 그대로 화면에 보여준다 — 위빙은 이 기기에서
+                // CNSDK 가 하므로 우리가 대신 할 수 있는 마지막 단계가 없다.
+                // Output.SBS_DEBUG 로 일부러 이 그림을 보기도 한다 (눈별 시차 측정).
                 renderSbsToFbo();
 
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
                 GLES20.glViewport(0, 0, surfW, surfH);
                 GLES20.glClearColor(0f, 0f, 0f, 1f);
                 GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
-
-                if (out == Output.SBS_DEBUG) {
-                    blit.draw(fbo.texture(), 0f, 0f, 1f, 1f);
-                } else {
-                    // 수렴은 이미 FBO 를 만들 때 좌/우 뷰포트를 밀어서 걸었다.
-                    // 여기서 또 걸면 두 번 밀린다 (setConvergence 주석 참고).
-                    interlace.draw(fbo.texture(), 0f);
-                }
+                blit.draw(fbo.texture(), 0f, 0f, 1f, 1f);
             }
 
             // 그리는 동안 새 프레임이 들어왔으면 다시 요청한다.

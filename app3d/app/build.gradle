@@ -19,17 +19,6 @@ android {
         ndk { abiFilters 'arm64-v8a' }   // 기기가 arm64. libVLC 가 ABI 당 ~30MB 라 하나만 담는다
     }
 
-    // 패널이 다르면 마지막 렌더 단계가 통째로 달라진다.
-    //   proma : libholography 마스크로 우리가 직접 인터레이스 (렌티큘러, 고정 패턴)
-    //   leia  : Leia CNSDK 가 위빙 (8방향 회절 + 얼굴추적이라 정적 패턴이 불가능)
-    // CNSDK 는 기기에서 추출한 것이라 재배포할 수 없다. proma 빌드에는 들어가지 않게
-    // 소스셋을 갈라 둔다 (app/src/leia/ 아래 jniLibs 와 매니페스트).
-    flavorDimensions += "panel"
-    productFlavors {
-        proma { dimension "panel" }
-        leia  { dimension "panel" }
-    }
-
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -70,6 +59,9 @@ dependencies {
     implementation 'org.videolan.android:libvlc-all:3.6.0'
     implementation project(':ffmpeg')          // AC3/E-AC3/DTS/TrueHD 소프트웨어 디코딩
 
-    // Leia CNSDK — com.moonlight.leia APK 에서 추출. 저장소에 없다 (LUMEPAD2-PORT.md 참고)
-    leiaImplementation files('libs/leia-cnsdk.jar')
+    // Leia CNSDK — 기기의 com.moonlight.leia APK 에서 꺼낸다. 재배포할 수 없어서
+    // 저장소에 넣지 않았다. 꺼내는 방법은 LUMEPAD2-PORT.md 참고.
+    // 같은 이유로 app/src/main/jniLibs/ 의 libleiaSDK.so, libleiaspdlog.so 와
+    // app/src/main/assets/shaders/ 도 저장소에 없다.
+    implementation files('libs/leia-cnsdk.jar')
 }

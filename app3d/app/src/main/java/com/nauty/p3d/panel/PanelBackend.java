@@ -62,8 +62,6 @@ public interface PanelBackend {
      */
     void setConversionStrength(float v);
 
-    /** 렌티큘러 마스크(libholography)를 쓰는 패널인지. */
-    boolean useHolography();
 
     void onResume();
     void onPause();

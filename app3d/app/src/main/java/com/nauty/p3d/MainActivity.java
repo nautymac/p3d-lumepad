@@ -71,11 +71,6 @@ public class MainActivity extends Activity {
         addButton(row, "URL/스트리밍 열기", new View.OnClickListener() {
             @Override public void onClick(View v) { askUrl(); }
         });
-        addButton(row, "3D 컨트롤 센터", new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                startActivity(new Intent(MainActivity.this, Fv3dControlActivity.class));
-            }
-        });
         root.addView(row);
 
         crumb = new TextView(this);

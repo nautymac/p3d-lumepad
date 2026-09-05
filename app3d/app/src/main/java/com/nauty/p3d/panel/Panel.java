@@ -164,7 +164,6 @@ public final class Panel {
             }
         }
 
-        @Override public boolean useHolography() { return false; }
 
         @Override public void whenReady(Runnable r) {
             if (tracking) { r.run(); return; }

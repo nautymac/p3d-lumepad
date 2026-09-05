@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- API 25 이하용 단일 아이콘. 적응형(anydpi-v26) 과 같은 그림에 배경만 붙인다. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -9,12 +10,25 @@
         android:fillColor="#0E1418"
         android:pathData="M22,8 L86,8 A14,14 0 0 1 100,22 L100,86 A14,14 0 0 1 86,100
                           L22,100 A14,14 0 0 1 8,86 L8,22 A14,14 0 0 1 22,8 Z" />
+
     <path
-        android:fillColor="#FF2D6E"
-        android:fillAlpha="0.92"
-        android:pathData="M43,33 L43,75 L79,54 Z" />
+        android:strokeColor="#00D8FF"
+        android:strokeWidth="6"
+        android:strokeAlpha="0.80"
+        android:fillColor="#00000000"
+        android:pathData="M32,34 L72,34 A8,8 0 0 1 80,42 L80,76 A8,8 0 0 1 72,84
+                          L32,84 A8,8 0 0 1 24,76 L24,42 A8,8 0 0 1 32,34 Z" />
+
     <path
-        android:fillColor="#00D8FF"
-        android:fillAlpha="0.78"
-        android:pathData="M33,33 L33,75 L69,54 Z" />
+        android:strokeColor="#FF2D6E"
+        android:strokeWidth="6"
+        android:strokeAlpha="0.92"
+        android:fillColor="#00000000"
+        android:pathData="M40,26 L80,26 A8,8 0 0 1 88,34 L88,68 A8,8 0 0 1 80,76
+                          L40,76 A8,8 0 0 1 32,68 L32,34 A8,8 0 0 1 40,26 Z" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.95"
+        android:pathData="M49,43 L49,67 L71,55 Z" />
 </vector>

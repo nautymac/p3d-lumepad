@@ -186,7 +186,6 @@ public class PlayerActivity extends Activity
 
         glView = new Stereo3DView(this);
         glView.setCallback(this);
-        glView.setUseHolography(panel.useHolography());
 
         View panelOut = panel.outputView(this);
         if (panelOut != null) {
@@ -1225,18 +1224,6 @@ public class PlayerActivity extends Activity
         }
     }
 
-    /**
-     * 시스템 바를 숨기는 것만으로는 부족하다. LAYOUT_* 플래그가 없으면 뷰가 바를 뺀
-     * 영역(2560x1456)에만 배치되고, 그러면 GL 표면도 1456 이 된다.
-     *
-     * 그런데 패널의 렌티큘러 마스크(/sdcard/3DKanKan/matrix, 2560x1600x2 바이트)는
-     * 화면 전체 높이 1600 기준으로 만들어져 있다. 1456 으로 HolographyInit 을 하면
-     * 마스크가 어긋나 화면 아래쪽에서 인터레이스가 끊기고, 그 경계가 가로줄로 보인다.
-     * (증상: 자막 두 줄 사이에 투명한 가로선)
-     *
-     * LAYOUT_HIDE_NAVIGATION 과 LAYOUT_FULLSCREEN 을 넣어 레이아웃을 바 아래까지
-     * 확장해야 GL 표면이 2560x1600 이 되어 마스크와 일치한다.
-     */
     /**
      * 네비게이션 바가 차지하는 높이.
      *
