@@ -45,6 +45,7 @@ public final class Panel {
 
         private volatile boolean ready  = false;   // didInitialize 는 비동기로 온다
         private boolean wantActive = false;
+        private boolean wantThreeD = true;    // 플레이어의 출력 설정(3D/2D)
 
         @Override
         public View outputView(Activity a) {
@@ -94,6 +95,19 @@ public final class Panel {
 
         @Override public boolean useHolography() { return false; }
 
+        /**
+         * 2D 출력이면 백라이트를 2D 로 되돌린다.
+         *
+         * 밝기 때문이다. 3D 모드에서는 균일 광원이 완전히 꺼지고(mode3d_ratio_2d=0.0)
+         * 회절 광원만 남아 같은 시스템 밝기에서도 화면이 눈에 띄게 어둡다.
+         * 얼굴추적 카메라도 볼 필요가 없으니 같이 내린다.
+         */
+        @Override public void setThreeD(boolean on) {
+            if (wantThreeD == on) return;
+            wantThreeD = on;
+            apply();
+        }
+
         // --- LeiaSDK.Delegate ---
 
         @Override public void didInitialize(LeiaSDK s) {
@@ -111,9 +125,10 @@ public final class Panel {
         private void apply() {
             if (sdk == null || !ready) return;
             try {
-                sdk.enableFaceTracking(wantActive);
-                sdk.enableBacklight(wantActive);
-                Log.i(TAG, "백라이트 " + (wantActive ? "3D" : "2D"));
+                boolean on = wantActive && wantThreeD;
+                sdk.enableFaceTracking(on);
+                sdk.enableBacklight(on);
+                Log.i(TAG, "백라이트 " + (on ? "3D" : "2D"));
             } catch (Throwable t) {
                 Log.e(TAG, "백라이트 전환 실패", t);
             }

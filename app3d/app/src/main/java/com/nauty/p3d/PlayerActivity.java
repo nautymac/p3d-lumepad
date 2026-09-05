@@ -132,6 +132,16 @@ public class PlayerActivity extends Activity
             return;
         }
 
+        // 재생 중에는 창 밝기를 최대로 고정한다.
+        //
+        // Lume Pad 2 의 3D 모드는 균일 백라이트를 완전히 끄고(mode3d_ratio_2d = 0.0)
+        // 회절 광원만 쓰기 때문에 같은 설정값에서도 2D 보다 어둡다. 거기에 적응형
+        // 밝기까지 겹치면 더 내려간다 — 실측으로 시스템 설정은 252 인데 적응형이
+        // 203 까지 내려놓고 있었다. 창 속성이라 이 화면을 벗어나면 저절로 풀린다.
+        WindowManager.LayoutParams wlp = getWindow().getAttributes();
+        wlp.screenBrightness = 1.0f;
+        getWindow().setAttributes(wlp);
+
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
@@ -431,7 +441,7 @@ public class PlayerActivity extends Activity
                 Stereo3DView.Output cur = glView.getOutput();
                 int i = 0;
                 for (int k = 0; k < cycle.length; k++) if (cycle[k] == cur) i = k;
-                glView.setOutput(cycle[(i + 1) % cycle.length]);
+                applyOutput(cycle[(i + 1) % cycle.length]);
                 refreshLabels();
             }
         });
@@ -796,6 +806,18 @@ public class PlayerActivity extends Activity
         refreshLabels();
     }
 
+    /**
+     * 출력 모드를 바꾼다. 패널에도 알려야 한다.
+     *
+     * ProMa 는 우리가 화면까지 그리니 뷰 안에서 끝나지만, Lume Pad 2 는 위빙을
+     * CNSDK 가 하므로 우리가 인터레이스를 건너뛸 수단이 없다. 대신 두 눈에 같은
+     * 그림을 넣어 평면으로 만들고(Stereo3DView), 백라이트도 2D 로 되돌린다.
+     */
+    private void applyOutput(Stereo3DView.Output o) {
+        glView.setOutput(o);
+        if (panel != null) panel.setThreeD(o != Stereo3DView.Output.TWO_D);
+    }
+
     private void refreshLabels() {
         btnPlay.setText(engine != null && engine.isPlaying() ? "❚❚" : "▶");
         if (btnSource == null || btnSwap == null) return;   // 패널 구성 전이면 건너뛴다
@@ -1099,7 +1121,7 @@ public class PlayerActivity extends Activity
         String outMode = getIntent().getStringExtra("output");
         if (outMode != null) {
             try {
-                glView.setOutput(Stereo3DView.Output.valueOf(outMode.toUpperCase(Locale.US)));
+                applyOutput(Stereo3DView.Output.valueOf(outMode.toUpperCase(Locale.US)));
             } catch (IllegalArgumentException ignored) { }
         }
 

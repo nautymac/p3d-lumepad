@@ -404,8 +404,17 @@ public class Stereo3DView extends GLSurfaceView {
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
 
             SourceFormat f = sourceFormat;
+
+            // 2D 출력.
+            //
+            // 내부 경로(ProMa)는 여기 오기 전에 drawMono 로 빠지지만, 외부 경로에서는
+            // 화면에 나가는 그림을 CNSDK 가 만들기 때문에 우리 쪽에서 위빙을 건너뛸 수가 없다.
+            // 대신 두 눈에 같은 그림을 넣는다. 8방향이 전부 같은 뷰가 되어 위빙을 거쳐도
+            // 원래 그림이 그대로 복원되고, 시차가 없으니 평면으로 보인다.
+            boolean flat = (output == Output.TWO_D);
+
             float[] uvL = uvFor(f, true);
-            float[] uvR = uvFor(f, false);
+            float[] uvR = flat ? uvL : uvFor(f, false);
 
             // 레터박스 계산. 눈 하나가 화면에서 갖는 상자(eyeDisplayAspect)에 소스 비율을
             // 맞춰 넣고, 그 결과를 FBO 반쪽 픽셀로 환산한다.
@@ -435,7 +444,7 @@ public class Stereo3DView extends GLSurfaceView {
 
             float shearTop   = 0f;
             float shearSlope = 0f;
-            if (f == SourceFormat.MONO_2D) {
+            if (f == SourceFormat.MONO_2D && !flat) {
                 // 원본 frag2dto3d.sh: x += 0.004 - y * screenHeight * 0.0000122
                 // 원본에서 screenHeight 유니폼에 들어간 값이 실제로는 가로 해상도였다.
                 //
@@ -487,7 +496,7 @@ public class Stereo3DView extends GLSurfaceView {
 
             // 자막은 좌/우 뷰에 각각 그리되 서로 반대로 밀어 화면 앞쪽에 뜨게 한다.
             // (음의 시차: 좌안은 오른쪽으로, 우안은 왼쪽으로)
-            float shiftHalf = subtitleDepth / 2f;   // 절반은 가로로 2배 늘어나므로 절반만 민다
+            float shiftHalf = flat ? 0f : subtitleDepth / 2f;   // 절반은 가로로 2배 늘어나므로 절반만 민다
             drawSubtitleInHalf(0,     halfW,  shiftHalf);
             drawSubtitleInHalf(halfW, halfW, -shiftHalf);
 

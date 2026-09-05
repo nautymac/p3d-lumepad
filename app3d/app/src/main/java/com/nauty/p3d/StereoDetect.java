@@ -26,6 +26,20 @@ public final class StereoDetect {
     private static final float SAME_RATIO = 0.38f;
     /** 이보다 대비가 낮은 프레임(검은 화면, 로고 페이드 등)은 표본에서 제외한다. */
     private static final float MIN_CONTRAST = 8f;
+    /**
+     * 닮은 쪽이 반대쪽보다 이 배수만큼은 더 닮아야 그 배치로 인정한다.
+     *
+     * 절대 문턱만으로는 갈리지 않기 때문이다. 실측하면 진짜 2D 클립이
+     * 좌우차/대비 0.221 인데 진짜 half-SBS 인 레고 배트맨은 0.292 로 오히려 더 컸다.
+     * 어디에 선을 그어도 둘 중 하나는 반드시 틀린다.
+     *
+     * 갈라주는 것은 좌우와 상하의 비다. SBS 프레임은 좌우 절반이 시차만큼만 다른데
+     * 상하 절반은 서로 다른 장면이라 차이가 몇 배로 벌어진다.
+     *     블레이드 러너  좌우 0.07~0.18   상하 0.83~1.34    4~13배
+     *     레고 배트맨    좌우 0.21~0.29   상하 1.09~1.33    4~6배
+     *     2D 클립        좌우 0.221      상하 0.276        1.25배
+     */
+    private static final float SAME_MARGIN = 2.0f;
 
     private static final int N = 32;   // 비교용 축소 해상도
 
@@ -123,12 +137,15 @@ public final class StereoDetect {
         float dSbs = meanAbsDiff(left, right);
         float dTb  = meanAbsDiff(top, bot);
 
-        boolean isSbs = dSbs < contrast * SAME_RATIO;
-        boolean isTb  = dTb  < contrast * SAME_RATIO;
+        Log.i(TAG, String.format(java.util.Locale.US,
+                "  표본 대비 %.1f  좌우차/대비 %.3f  상하차/대비 %.3f",
+                contrast, dSbs / contrast, dTb / contrast));
 
-        if (isSbs && !isTb) return 1;
-        if (isTb && !isSbs) return 2;
-        if (isSbs)          return dSbs <= dTb ? 1 : 2;   // 둘 다면 더 닮은 쪽
+        boolean isSbs = dSbs < contrast * SAME_RATIO && dSbs * SAME_MARGIN < dTb;
+        boolean isTb  = dTb  < contrast * SAME_RATIO && dTb  * SAME_MARGIN < dSbs;
+
+        if (isSbs) return 1;
+        if (isTb)  return 2;
         return 0;
     }
 

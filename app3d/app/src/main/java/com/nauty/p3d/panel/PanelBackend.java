@@ -30,6 +30,14 @@ public interface PanelBackend {
     /** GL 뷰를 만든 직후. 외부 출력이 필요하면 여기서 연결한다. */
     void attach(Activity a, Stereo3DView gl);
 
+    /**
+     * 3D 로 내보낼지 여부. 패널이 백라이트를 갈아야 하는 기기가 있다.
+     *
+     * Lume Pad 2 는 3D 모드에서 균일 백라이트를 끄고 회절 광원만 켜므로 화면이
+     * 어두워진다. 2D 출력으로 볼 때까지 그 상태로 두면 손해다.
+     */
+    void setThreeD(boolean on);
+
     /** 렌티큘러 마스크(libholography)를 쓰는 패널인지. */
     boolean useHolography();
 
