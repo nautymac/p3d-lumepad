@@ -69,6 +69,15 @@ public class Stereo3DView extends GLSurfaceView {
     private volatile int     extW = 0, extH = 0;
 
     /**
+     * 외부 타깃에 SBS 대신 <b>모노 한 장</b>을 그린다.
+     *
+     * Lume Pad 2 에서 2D 소스를 Leia 의 신경망 변환기에 넘길 때 쓴다. 그쪽이
+     * 시차를 만들어 2타일 다시점을 내주므로, 우리는 좌우를 만들지 않는다.
+     * 우리가 하던 레터박스·화면비·자막은 그대로 살아 있다 — 그림 한 장까지가 우리 몫이다.
+     */
+    private volatile boolean extSingleView = false;
+
+    /**
      * 렌티큘러 마스크를 쓸지. ProMa 는 true(기본), Lume Pad 2 는 false —
      * 그 기기에는 libholography 가 만드는 마스크가 맞지 않고 쓸 일도 없다.
      */
@@ -96,13 +105,16 @@ public class Stereo3DView extends GLSurfaceView {
      */
     private static boolean sHolographyInited = false;
 
+    private final Renderer renderer;
+
     public Stereo3DView(Context c) { this(c, null); }
 
     public Stereo3DView(Context c, AttributeSet a) {
         super(c, a);
         setEGLContextClientVersion(2);
         setPreserveEGLContextOnPause(true);
-        setRenderer(new Renderer());
+        renderer = new Renderer();
+        setRenderer(renderer);
         setRenderMode(RENDERMODE_WHEN_DIRTY);
     }
 
@@ -157,6 +169,41 @@ public class Stereo3DView extends GLSurfaceView {
      * (눈당 1920x1200 이면 3840x1200). GL 표면이 만들어지기 전에 불러도 된다.
      */
     public void setExternalSbsTarget(Surface s, int w, int h) {
+        setExternalTarget(s, w, h, false);
+    }
+
+    /**
+     * 모노 한 장을 이 서피스로 보낸다. 크기는 <b>눈 하나</b> 기준이다.
+     * 시차를 만드는 일은 받는 쪽(Leia 변환기)이 한다.
+     */
+    public void setExternalMonoTarget(Surface s, int w, int h) {
+        setExternalTarget(s, w, h, true);
+    }
+
+    /**
+     * 외부 타깃을 놓는다.
+     *
+     * 그 서피스를 남이 가져가야 할 때 필요하다. 한 서피스에 EGL 윈도우 표면을 둘이
+     * 만들 수 없어서(eglCreateWindowSurface 가 EGL_BAD_ALLOC), 우리가 먼저 놓지 않으면
+     * 받는 쪽이 만들다 실패한다. GL 스레드가 실제로 놓을 때까지 기다린다.
+     */
+    public void detachExternalTarget() {
+        extTarget = null;
+        final java.util.concurrent.CountDownLatch done =
+                new java.util.concurrent.CountDownLatch(1);
+        queueEvent(new Runnable() {
+            @Override public void run() { renderer.releaseExternal(); done.countDown(); }
+        });
+        requestRender();
+        try {
+            done.await(1000, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void setExternalTarget(Surface s, int w, int h, boolean single) {
+        extSingleView = single;
         extTarget = s; extW = w; extH = h;
         requestRender();
     }
@@ -349,6 +396,11 @@ public class Stereo3DView extends GLSurfaceView {
             if (pendingFrames.get() > 0) requestRender();
         }
 
+        /** GL 스레드에서만 부른다. */
+        void releaseExternal() {
+            if (external != null) { external.release(); external = null; }
+        }
+
         /** FBO 에 만들어 둔 SBS 를 외부 서피스(CNSDK)로 내보낸다. */
         private void drawToExternal() {
             Surface s = extTarget;
@@ -383,7 +435,9 @@ public class Stereo3DView extends GLSurfaceView {
          * 이 값이 있어야 어느 쪽이든 레터박스를 같은 식으로 계산할 수 있다.
          */
         private float eyeDisplayAspect() {
-            if (extTarget != null && extH > 0) return (extW / 2f) / extH;
+            if (extTarget != null && extH > 0) {
+                return (extSingleView ? extW : extW / 2f) / extH;
+            }
             return (float) surfW / (float) surfH;
         }
 
@@ -392,7 +446,7 @@ public class Stereo3DView extends GLSurfaceView {
          * 시어 세기와 자막 크기가 "화면에서 얼마나" 를 기준으로 정해지므로 필요하다.
          */
         private float eyeDisplayWidth() {
-            if (extTarget != null && extW > 0) return extW / 2f;
+            if (extTarget != null && extW > 0) return extSingleView ? extW : extW / 2f;
             return surfW;
         }
 
@@ -422,7 +476,8 @@ public class Stereo3DView extends GLSurfaceView {
             // 환산이 필요한 이유: ProMa 는 FBO 반쪽(1280x1600)이 화면 전체(2560x1600)로
             // 늘어나는 아나모픽이라 폭이 절반으로 눌려 있고, CNSDK 로 넘길 때는
             // 반쪽(1920x1200)이 그대로 눈 상자라 눌림이 없다. 두 경우를 같은 식으로 다룬다.
-            int   halfW    = fbo.width / 2;
+            // 단일 뷰 출력이면 FBO 전체가 눈 하나다.
+            int   halfW    = extSingleView ? fbo.width : fbo.width / 2;
             int   boxH     = fbo.height;
             float eyeAsp   = eyeDisplayAspect();
             float boxDispW = boxH * eyeAsp;          // 눈 상자를 화면 단위로 본 폭
@@ -444,7 +499,8 @@ public class Stereo3DView extends GLSurfaceView {
 
             float shearTop   = 0f;
             float shearSlope = 0f;
-            if (f == SourceFormat.MONO_2D && !flat) {
+            // 단일 뷰로 내보낼 때는 시어를 걸지 않는다 — 시차는 받는 쪽이 만든다.
+            if (f == SourceFormat.MONO_2D && !flat && !extSingleView) {
                 // 원본 frag2dto3d.sh: x += 0.004 - y * screenHeight * 0.0000122
                 // 원본에서 screenHeight 유니폼에 들어간 값이 실제로는 가로 해상도였다.
                 //

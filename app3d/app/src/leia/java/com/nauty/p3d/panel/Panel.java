@@ -1,6 +1,7 @@
 package com.nauty.p3d.panel;
 
 import android.app.Activity;
+import android.content.Context;
 import android.graphics.SurfaceTexture;
 import android.os.Handler;
 import android.os.Looper;
@@ -15,6 +16,8 @@ import com.leia.sdk.views.InputViewsAsset;
 import com.leia.sdk.views.InterlacedSurfaceView;
 import com.leia.sdk.views.InterlacedSurfaceViewConfigAccessor;
 import com.leia.sdk.views.ScaleType;
+import com.leiainc.leiamediasdk.LeiaMediaSDK;
+import com.leiainc.leiamediasdk.interfaces.MonoVideoSurfaceRenderer;
 import com.nauty.p3d.gl.Stereo3DView;
 
 /**
@@ -47,6 +50,25 @@ public final class Panel {
 
         private volatile boolean ready  = false;   // didInitialize 는 비동기로 온다
 
+        // --- 2D 소스용 Leia 신경망 변환기 ---
+        //
+        // 기기에 깔린 Leia Media Service 의 엔진을 우리 프로세스에 올려 쓴다
+        // (LeiaMediaSDK 주석 참고). 모노 한 장을 넣으면 시차를 만들어 2타일로 내주는데,
+        // 그 배치가 우리가 CNSDK 에 넘기던 SBS 와 같아서 CNSDK 설정은 건드릴 게 없다.
+        //
+        // 만드는 데 1초쯤 걸리고 생성자가 블록하므로, 2D 소스를 처음 만났을 때
+        // 백그라운드에서 한 번만 만들고 계속 갖고 있는다.
+        private Surface                  mlIn;
+        private Activity                 activity;
+        private Stereo3DView             gl;
+        private MonoVideoSurfaceRenderer ml;
+        private volatile boolean         mlStarting = false;
+        private volatile boolean         mono       = false;
+        private volatile float           strength   = 1.0f;
+
+        /** Leia 기본값. 슬라이더 1.0 이 이 값이 되도록 맞춘다. */
+        private static final float BASE_GAIN = 0.3f;
+
         // 재생 시작을 패널이 자리잡을 때까지 붙잡아 두기 위한 것들.
         private final Handler main = new Handler(Looper.getMainLooper());
         private Runnable pendingReady;
@@ -67,6 +89,8 @@ public final class Panel {
 
         @Override
         public void attach(Activity a, final Stereo3DView gl) {
+            this.activity = a;
+            this.gl       = gl;
             // CNSDK 가 내주는 서피스에 **우리가 만든 SBS** 를 넣는다.
             // 디코더를 바로 물리면 레터박스·시어·자막이 빠진 그림이 위빙된다.
             InputViewsAsset asset = new InputViewsAsset();
@@ -74,6 +98,9 @@ public final class Panel {
                 @Override public void onSurfaceTextureReady(SurfaceTexture st) {
                     st.setDefaultBufferSize(FRAME_W, FRAME_H);
                     out = new Surface(st);
+                    // 2D 로 이미 정해져 있으면 이 면은 Leia 변환기가 가져가야 한다.
+                    // 우리가 먼저 잡으면 그쪽이 EGL 표면을 만들지 못한다.
+                    if (mono) { ensureMl(); return; }
                     gl.setExternalSbsTarget(out, FRAME_W, FRAME_H);
                     Log.i(TAG, "CNSDK 서피스를 3D 파이프라인 출력으로 연결");
                 }
@@ -106,6 +133,83 @@ public final class Panel {
         }
 
         @Override public boolean useHolography() { return false; }
+
+        /**
+         * 2D 소스면 Leia 변환기를 끼우고, 3D 소스면 지금까지대로 우리 SBS 를 바로 넘긴다.
+         */
+        @Override public void setMonoSource(boolean m) {
+            if (mono == m) return;
+            mono = m;
+            if (m) ensureMl();
+            else {
+                // 3D 로 돌아간다. 변환기가 쥐고 있는 출력면을 돌려받아야 한다.
+                if (ml != null) {
+                    try { ml.release(); } catch (Throwable ignored) { }
+                    ml = null;
+                    if (mlIn != null) { mlIn.release(); mlIn = null; }
+                }
+                if (gl != null && out != null) gl.setExternalSbsTarget(out, FRAME_W, FRAME_H);
+            }
+        }
+
+        @Override public void setConversionStrength(float v) {
+            strength = v;
+            MonoVideoSurfaceRenderer r = ml;
+            if (r != null) {
+                try { r.setGainMultiplier(BASE_GAIN * v); } catch (Throwable ignored) { }
+            }
+        }
+
+        /**
+         * 변환기를 한 번만 만든다.
+         *
+         * 출력은 CNSDK 입력면이고, 입력은 그쪽이 내주는 면이다. 그 면이 준비되면
+         * 우리 GL 의 출력을 SBS 에서 모노로 바꿔 그리로 돌린다.
+         *
+         * ADSP_LIBRARY_PATH 때문에 서비스 컨텍스트를 넘겨야 하고, 생성자가
+         * 렌더링 스레드 초기화까지 블록하므로 UI 스레드에서 부르면 안 된다.
+         */
+        private void ensureMl() {
+            if (ml != null) {
+                if (gl != null && mlIn != null) gl.setExternalMonoTarget(mlIn, FRAME_W / 2, FRAME_H);
+                return;
+            }
+            if (mlStarting || out == null || activity == null) return;
+            mlStarting = true;
+            new Thread(new Runnable() { @Override public void run() {
+                LeiaMediaSDK media = LeiaMediaSDK.getInstance(activity);
+                Context svc = media == null ? null : LeiaMediaSDK.serviceContext(activity);
+                if (svc == null) {
+                    Log.e(TAG, "Leia 변환기를 쓸 수 없다 — 시어로 간다");
+                    mlStarting = false;
+                    return;
+                }
+                // 우리 GL 이 출력면을 쥐고 있으면 먼저 놓아야 한다.
+                if (gl != null) gl.detachExternalTarget();
+
+                long t0 = System.currentTimeMillis();
+                MonoVideoSurfaceRenderer r = media.createMonoVideoSurfaceRenderer(svc, out,
+                        new MonoVideoSurfaceRenderer.SurfaceTextureCallback() {
+                            @Override public void onSurfaceTextureReady(SurfaceTexture st) {
+                                // 기본값이 1000x1000 이라 두면 정사각으로 눌린다.
+                                st.setDefaultBufferSize(FRAME_W / 2, FRAME_H);
+                                mlIn = new Surface(st);
+                                if (mono && gl != null) {
+                                    gl.setExternalMonoTarget(mlIn, FRAME_W / 2, FRAME_H);
+                                    Log.i(TAG, "2D→3D 를 Leia 변환기로 넘겼다");
+                                }
+                            }
+                        });
+                mlStarting = false;
+                if (r == null) { Log.e(TAG, "Leia 변환기 생성 실패 — 시어로 간다"); return; }
+                ml = r;
+                Log.i(TAG, "Leia 변환기 준비 " + (System.currentTimeMillis() - t0) + "ms");
+                try {
+                    r.setGainMultiplier(BASE_GAIN * strength);
+                    r.setAutoConvergence(true);
+                } catch (Throwable ignored) { }
+            }}, "leia-ml").start();
+        }
 
         @Override public void whenReady(Runnable r) {
             if (tracking) { r.run(); return; }
@@ -186,6 +290,8 @@ public final class Panel {
             if (view != null) {
                 try { view.releaseInputViewsAsset(); } catch (Throwable ignored) { }
             }
+            if (ml != null) { try { ml.release(); } catch (Throwable ignored) { } ml = null; }
+            if (mlIn != null) { mlIn.release(); mlIn = null; }
             if (out != null) { out.release(); out = null; }
             try { LeiaSDK.shutdownSDK(); } catch (Throwable ignored) { }
         }

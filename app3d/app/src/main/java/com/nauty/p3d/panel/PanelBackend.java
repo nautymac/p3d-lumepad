@@ -47,6 +47,21 @@ public interface PanelBackend {
      */
     void setThreeD(boolean on);
 
+    /**
+     * 지금 소스가 2D 인지 알려준다.
+     *
+     * Lume Pad 2 는 2D 일 때 마지막 단계를 Leia 의 신경망 변환기로 갈아 끼운다.
+     * 우리 GL 은 모노 한 장까지만 그리고, 시차는 그쪽이 만든다.
+     * 우리 시어보다 확실히 낫다 — 같은 프레임으로 진짜 스테레오와 비교해 확인했다.
+     */
+    void setMonoSource(boolean mono);
+
+    /**
+     * 2D→3D 시차 강도. 슬라이더와 같은 눈금(1.0 = 기본).
+     * 시어를 쓰는 기기는 뷰가 직접 받으므로 할 일이 없다.
+     */
+    void setConversionStrength(float v);
+
     /** 렌티큘러 마스크(libholography)를 쓰는 패널인지. */
     boolean useHolography();
 

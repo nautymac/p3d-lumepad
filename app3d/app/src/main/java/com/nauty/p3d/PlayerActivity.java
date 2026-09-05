@@ -483,7 +483,11 @@ public class PlayerActivity extends Activity
 
         p.addView(label("깊이 (2D→3D 시차 강도)"));
         p.addView(slider(300, 100, new OnValue() {
-            @Override public void set(int v) { glView.setDepth(v / 100f); refreshLabels(); }
+            @Override public void set(int v) {
+                glView.setDepth(v / 100f);
+                if (panel != null) panel.setConversionStrength(v / 100f);
+                refreshLabels();
+            }
         }));
 
         p.addView(label("수렴점 (perOffset)"));
@@ -877,6 +881,7 @@ public class PlayerActivity extends Activity
                         detected = true;
                         SourceFormat before = glView.getSourceFormat();
                         glView.setSourceFormat(f);   // 자동 판별이므로 저장은 하지 않는다
+                        if (panel != null) panel.setMonoSource(f == SourceFormat.MONO_2D);
                         refreshLabels();
                         if (f != before) {
                             Toast.makeText(PlayerActivity.this,
@@ -889,6 +894,8 @@ public class PlayerActivity extends Activity
     }
 
     private void applySourceFormat(SourceFormat f) {
+        // 패널에 따라 2D 는 출력 경로가 다르다 (Lume Pad 2 는 Leia 변환기를 끼운다).
+        if (panel != null) panel.setMonoSource(f == SourceFormat.MONO_2D);
         glView.setSourceFormat(f);
         if (manualChoice && mediaKey != null && !mediaKey.isEmpty()) {
             getSharedPreferences(PREFS, MODE_PRIVATE)
