@@ -42,8 +42,21 @@ public class Stereo3DView extends GLSurfaceView {
     private volatile Output       output       = Output.THREE_D;
     private volatile boolean      swapLR       = false;
     private volatile float        depth        = 1.0f;    // 2D->3D 시어 배율
-    private volatile float        perOffset    = 0.0f;    // 수렴점 (+-0.015)
     private volatile float        bottomCut    = 1.0f;    // 1.0 = 비활성
+
+    /**
+     * 수렴 보정. 화면에 나가는 시차(우안 x − 좌안 x)에 더할 픽셀 수이며,
+     * 눈 하나가 화면에서 갖는 폭 기준이다.
+     *
+     * 양수면 시차가 커져 장면이 화면 뒤로 물러나고, 음수면 앞으로 나온다.
+     * 좌안 −c/2, 우안 +c/2 로 반씩 나눠 걸어 융합된 상이 옆으로 밀리지 않게 한다.
+     *
+     * 눈금을 화면 픽셀로 잡은 이유: 게임 SBS 의 시차는 만들 때 쓰던 해상도의
+     * 픽셀 수로 굳어 있는데, 그것을 태블릿 눈 상자(1920px)에 맞춰 늘리거나 줄이면
+     * 시차도 같은 비율로 변한다. 소스 픽셀을 기준으로 잡아두면 소스가 바뀔 때마다
+     * 같은 값의 뜻이 달라지지만, 화면 픽셀이면 어떤 소스든 "화면에서 이만큼" 으로 같다.
+     */
+    private volatile float        convergence  = 0.0f;
     /** 화면 비 강제값 (0 = 소스 그대로). 레터박스가 거슬리거나 소스 비율이 틀린 경우용. */
     public static final float ASPECT_FILL = -1f;
 
@@ -164,10 +177,27 @@ public class Stereo3DView extends GLSurfaceView {
     public void setDepth(float d)               { depth = d;        contentChanged(); }
     public void setBottomCut(float c)           { bottomCut = c;    contentChanged(); }
 
-    public void setPerOffset(float p) {
-        perOffset = Math.max(-0.015f, Math.min(0.015f, p));
+    /**
+     * 수렴 보정 (화면 시차 픽셀). 0 이면 소스 그대로.
+     *
+     * 예전에는 이 값을 인터레이스 셰이더(frag3D.sh 의 perOffset)에 넘겼다. 두 가지가
+     * 문제였다. 하나는 그 단계가 ProMa 에만 있어서, 위빙을 CNSDK 가 하는 Lume Pad 2
+     * 에서는 슬라이더를 아무리 움직여도 아무 일도 일어나지 않았다는 것. 다른 하나는
+     * 그 셰이더가 밀린 만큼 <b>옆 눈의 그림을 끌어다 쓴다</b>는 것 — 화면 좌우 끝에
+     * 반대쪽 눈 조각이 묻어난다 (원본에도 이걸 검게 칠하려던 코드가 주석으로 남아 있다).
+     *
+     * 지금은 좌/우 뷰를 FBO 에 그릴 때 뷰포트를 반씩 반대로 밀고 가위질(scissor)로
+     * 각자의 절반 밖을 막는다. 두 패널에서 똑같이 동작하고, 밀려서 드러난 자리는
+     * 옆 눈이 아니라 검은색이 된다.
+     */
+    /** 슬라이더와 자동 보정이 함께 쓰는 한계. 실측 최대 보정량이 224px 이라 넉넉히 잡는다. */
+    public static final float CONVERGENCE_MAX = 320f;
+
+    public void setConvergence(float px) {
+        convergence = Math.max(-CONVERGENCE_MAX, Math.min(CONVERGENCE_MAX, px));
         contentChanged();
     }
+    public float getConvergence() { return convergence; }
 
     /**
      * 한쪽 눈 그림의 종횡비를 강제한다.
@@ -257,7 +287,33 @@ public class Stereo3DView extends GLSurfaceView {
     public Output  getOutput()    { return output; }
     public boolean isSwapLR()     { return swapLR; }
     public float   getDepth()     { return depth; }
-    public float   getPerOffset() { return perOffset; }
+
+    /** 화면에 나가는 GL 표면 크기. GL 스레드 밖에서도 읽을 수 있게 복사해 둔다. */
+    private volatile int surfaceW = 0, surfaceH = 0;
+
+    /**
+     * 눈 하나가 화면에서 갖는 픽셀 크기. 자막 크기와 수렴 눈금의 기준이다.
+     *
+     * 뷰 크기({@code getWidth()})를 쓰면 안 된다. Lume Pad 2 에서는 화면을 CNSDK 뷰가
+     * 차지하고 우리 GLSurfaceView 는 GL 컨텍스트만 얻으려고 <b>1x1</b> 로 깔려 있다.
+     * 그 값으로 자막을 그리면 글자 크기 18px, 폭 64px 짜리 비트맵이 만들어져
+     * 한 줄에 한두 글자씩 끊긴 채 눈곱만 하게 나온다 (코랄라인·스파이더맨에서 확인).
+     *
+     * 실제 상자는 ProMa 가 화면 전체(2560x1600), Lume Pad 2 가 CNSDK 로 넘기는
+     * 프레임의 반쪽(1920x1200) 이다. 둘 다 화면 높이의 4.2% 라는 같은 규칙이 선다.
+     *
+     * GL 스레드 안에서 쓰는 {@code Renderer.eyeDisplayWidth()} 와 같은 값이되,
+     * 이쪽은 표면 크기를 복사해 둬서 UI 스레드에서도 읽을 수 있다.
+     */
+    public int eyeWidthPx() {
+        if (extTarget != null && extW > 0) return extSingleView ? extW : extW / 2;
+        return surfaceW;
+    }
+
+    public int eyeHeightPx() {
+        if (extTarget != null && extH > 0) return extH;
+        return surfaceH;
+    }
 
     // -------------------------------------------------------------------
 
@@ -313,6 +369,8 @@ public class Stereo3DView extends GLSurfaceView {
         public void onSurfaceChanged(GL10 gl, int w, int h) {
             surfW = w;
             surfH = h;
+            surfaceW = w;
+            surfaceH = h;
 
             // 외부로 내보낼 때는 FBO 가 곧 내보낼 프레임이므로 그 크기로 만든다.
             // 우리가 인터레이스할 때는 지금까지대로 화면 크기.
@@ -411,7 +469,9 @@ public class Stereo3DView extends GLSurfaceView {
                 if (out == Output.SBS_DEBUG) {
                     blit.draw(fbo.texture(), 0f, 0f, 1f, 1f);
                 } else {
-                    interlace.draw(fbo.texture(), perOffset);
+                    // 수렴은 이미 FBO 를 만들 때 좌/우 뷰포트를 밀어서 걸었다.
+                    // 여기서 또 걸면 두 번 밀린다 (setConvergence 주석 참고).
+                    interlace.draw(fbo.texture(), 0f);
                 }
             }
 
@@ -565,20 +625,39 @@ public class Stereo3DView extends GLSurfaceView {
             float halfTop   = shearTop   * 0.5f;
             float halfSlope = shearSlope * 0.5f;
 
-            GLES20.glViewport(dxL, dy, dw, dh);
-            src.draw(oesTex, stMatrix, uvL[0], uvL[1], uvL[2], uvL[3],
-                    -halfTop, -halfSlope, bottomCut);
-
-            // 우안: 2D 소스면 반대 방향으로 나머지 절반
-            GLES20.glViewport(dxR, dy, dw, dh);
-            src.draw(oesTex, stMatrix, uvR[0], uvR[1], uvR[2], uvR[3],
-                    halfTop, halfSlope, bottomCut);
+            // 수렴 보정. 좌안은 왼쪽으로, 우안은 오른쪽으로 반씩 민다.
+            //
+            // convergence 는 화면 픽셀이라 FBO 반쪽 픽셀로 환산해야 한다. ProMa 는
+            // 반쪽(1280)이 화면 전체(2560)로 늘어나므로 절반이 되고, CNSDK 로 넘길 때는
+            // 반쪽(1920)이 곧 눈 상자라 1:1 이다. 레터박스 계산과 같은 환산이다.
+            //
+            // 2D 출력(flat)이나 모노 단일 뷰에서는 걸지 않는다 — 앞은 시차가 있으면
+            // 안 되는 화면이고, 뒤는 시차를 Leia 변환기가 만든다.
+            int conv = (flat || extSingleView) ? 0
+                    : Math.round(convergence * 0.5f * halfW / eyeDisplayWidth());
 
             // 자막은 좌/우 뷰에 각각 그리되 서로 반대로 밀어 화면 앞쪽에 뜨게 한다.
             // (음의 시차: 좌안은 오른쪽으로, 우안은 왼쪽으로)
             float shiftHalf = flat ? 0f : subtitleDepth / 2f;   // 절반은 가로로 2배 늘어나므로 절반만 민다
-            drawSubtitleInHalf(0,     halfW,  shiftHalf);
+
+            // 밀린 그림이 옆 눈의 자리를 침범하지 못하게 각자의 절반으로 가위질한다.
+            // 이것이 예전 인터레이스 단계 수렴과의 결정적 차이다 (setConvergence 주석).
+            GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
+
+            GLES20.glScissor(0, 0, halfW, boxH);
+            GLES20.glViewport(dxL - conv, dy, dw, dh);
+            src.draw(oesTex, stMatrix, uvL[0], uvL[1], uvL[2], uvL[3],
+                    -halfTop, -halfSlope, bottomCut);
+            drawSubtitleInHalf(0, halfW, shiftHalf);
+
+            // 우안: 2D 소스면 반대 방향으로 나머지 절반
+            GLES20.glScissor(halfW, 0, Math.max(0, fbo.width - halfW), boxH);
+            GLES20.glViewport(dxR + conv, dy, dw, dh);
+            src.draw(oesTex, stMatrix, uvR[0], uvR[1], uvR[2], uvR[3],
+                    halfTop, halfSlope, bottomCut);
             drawSubtitleInHalf(halfW, halfW, -shiftHalf);
+
+            GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
 
             fbo.unbind();
         }

@@ -98,6 +98,15 @@ public final class StereoDetect {
                     + " (표본 " + frameW + "x" + frameH
                     + ", 원본 " + metaW + "x" + metaH + ")");
 
+            // 해상도가 결정적이면 표본 투표를 볼 필요가 없다.
+            // 3.56:1 짜리 영상은 2D 일 수 없다. 반대로 픽셀 판별은 시차가 큰 소스에서
+            // 2D 라고 답하는 일이 있다 (detectImage 주석의 실측 참고).
+            SourceFormat byAspect = SourceFormat.fromAspect(aspW, aspH);
+            if (byAspect != null) {
+                Log.i(TAG, "  해상도가 결정적이라 " + byAspect.label);
+                return byAspect;
+            }
+
             if (sbs == 0 && tb == 0 && mono == 0) return null;   // 쓸만한 표본이 없었다
 
             // 과반이 아니면 바꾸지 않는다.
@@ -207,5 +216,72 @@ public final class StereoDetect {
     private static SourceFormat tbVariant(int w, int h) {
         if (h <= 0) return SourceFormat.TB_HALF;
         return ((float) w / h) <= 1.05f ? SourceFormat.TB_FULL : SourceFormat.TB_HALF;
+    }
+
+    /**
+     * 사진 한 장의 스테레오 배치를 판별한다.
+     *
+     * 영상보다 훨씬 확실하다. 영상은 getFrameAtTime 이 축소된 비트맵을 돌려주는
+     * 바람에 full-SBS 를 half 로 잘못 잡는 일이 있어서 컨테이너 해상도를 따로
+     * 봐야 했는데, 사진은 inJustDecodeBounds 로 원본 해상도를 정확히 읽을 수 있다.
+     * half/full 은 그 값으로 가르고, 배치(SBS/TB/2D)만 픽셀로 판별한다.
+     *
+     * 판별 실패 시 null.
+     */
+    public static SourceFormat detectImage(Context ctx, Uri uri) {
+        try {
+            android.graphics.BitmapFactory.Options bounds =
+                    new android.graphics.BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            java.io.InputStream in = ctx.getContentResolver().openInputStream(uri);
+            if (in == null) return null;
+            android.graphics.BitmapFactory.decodeStream(in, null, bounds);
+            in.close();
+
+            int w = bounds.outWidth, h = bounds.outHeight;
+            if (w <= 0 || h <= 0) return null;
+
+            // 해상도가 결정적이면 픽셀은 볼 필요가 없다.
+            //
+            // 3.56:1 짜리 사진은 2D 일 수 없다. 그런데 픽셀 판별은 게임 스크린샷에서
+            // 자주 2D 라고 답한다 — 3D Vision 계열은 영화보다 시차를 훨씬 크게 주기
+            // 때문이다. 실측: Aragami 스크린샷(3344x940, 진짜 full-SBS)이 좌우차/대비
+            // 0.648, 상하차/대비 1.131 로 나와 문턱(0.38)과 배수(2.0) 양쪽 다 못 넘겼다.
+            // 이런 프레임에서는 해상도가 훨씬 강한 증거다.
+            SourceFormat byAspect = SourceFormat.fromAspect(w, h);
+            if (byAspect != null) {
+                Log.i(TAG, "사진 스테레오 판별: " + w + "x" + h
+                        + " — 해상도가 결정적이라 " + byAspect.label);
+                return byAspect;
+            }
+
+            // 판별에는 축소본이면 충분하다 (32x32 격자로 비교한다).
+            android.graphics.BitmapFactory.Options o =
+                    new android.graphics.BitmapFactory.Options();
+            o.inSampleSize = 1;
+            while (w / o.inSampleSize > 640) o.inSampleSize *= 2;
+            in = ctx.getContentResolver().openInputStream(uri);
+            if (in == null) return null;
+            Bitmap bmp = android.graphics.BitmapFactory.decodeStream(in, null, o);
+            in.close();
+            if (bmp == null) return null;
+
+            int vote = classify(bmp);
+            bmp.recycle();
+
+            Log.i(TAG, "사진 스테레오 판별: " + w + "x" + h + "  판정 "
+                    + (vote == 1 ? "SBS" : vote == 2 ? "TB" : vote == 0 ? "2D" : "보류"));
+
+            if (vote == 1) return sbsVariant(w, h);
+            if (vote == 2) return tbVariant(w, h);
+            if (vote == 0) return SourceFormat.MONO_2D;
+
+            // 대비가 모자라 픽셀로는 못 갈랐다. 해상도만으로 되는 만큼은 살린다.
+            return SourceFormat.fromAspect(w, h);
+
+        } catch (Throwable t) {
+            Log.w(TAG, "사진 스테레오 판별 실패: " + uri, t);
+            return null;
+        }
     }
 }

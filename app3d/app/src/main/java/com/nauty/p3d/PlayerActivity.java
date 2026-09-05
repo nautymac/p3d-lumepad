@@ -47,6 +47,21 @@ public class PlayerActivity extends Activity
     public static final String EXTRA_TITLE = "title";
     /** 재생 엔진 강제 지정 ("EXO" | "VLC"). 이번 재생에만 적용되고 저장되지 않는다. */
     public static final String EXTRA_ENGINE = "engine";
+    /**
+     * 이 URI 가 사진이라는 표시.
+     *
+     * 사진도 같은 화면에서 본다. 3D 로 내보내는 길이 영상과 완전히 같기 때문이다 —
+     * 레터박스, SBS/TB 크롭, 수렴, 위빙, Leia 신경망 변환까지 그대로 쓴다. 다른 것은
+     * 프레임을 만들어 넣는 쪽뿐이라 {@code PhotoEngine} 하나만 갈아 끼운다.
+     */
+    public static final String EXTRA_PHOTO = "photo";
+    /**
+     * 이전/다음으로 넘길 범위가 되는 폴더 경로. 없으면 전체.
+     *
+     * 목록 화면에서 들어간 폴더 안에서만 돌게 한다. 사진이 1883장이라 전체를 한 줄로
+     * 도는 건 뜻이 없다 — 지금 보고 있던 묶음 안에서 넘기는 것이 자연스럽다.
+     */
+    public static final String EXTRA_FOLDER = "folder";
 
     private static final String TAG        = "P3D";
     private static final String PREFS      = "p3d";
@@ -57,6 +72,7 @@ public class PlayerActivity extends Activity
     private static final String KEY_SUB_DEPTH = "sub_depth";
     private static final String KEY_POS       = "pos:";
     private static final String KEY_ASPECT    = "aspect:";
+    private static final String KEY_CONV      = "conv:";
 
     /** 이번 재생에만 적용되는 엔진 지정 (인텐트 엑스트라). 저장하지 않는다. */
     private VideoEngine.Kind forcedKind = null;
@@ -82,6 +98,22 @@ public class PlayerActivity extends Activity
     private boolean detected = false;
     private String  mediaKey;
 
+    // ---- 사진 모드
+    private boolean isPhoto = false;
+    private java.util.List<MediaLibrary.Item> photos;
+    private int photoIndex = -1;
+
+    /**
+     * 재생을 시작해도 되는 세 가지 조건.
+     *
+     * 영상은 배치 판별이 재생 중에 끝나도 되지만(끝나면 갈아끼운다), 사진은 굳이
+     * 그럴 이유가 없다. 원본 해상도를 열기 전에 정확히 읽을 수 있어서 <b>띄우기 전에</b>
+     * 배치를 확정할 수 있고, 그러면 2D 로 한 번 나왔다가 3D 로 바뀌는 깜빡임이 없다.
+     */
+    private boolean surfaceReady = false;
+    private boolean panelReady   = false;
+    private boolean formatReady  = true;   // 영상은 처음부터 참
+
     private Stereo3DView glView;
     private com.nauty.p3d.panel.PanelBackend panel;
     /** 컨트롤을 토글하는 탭을 받는 뷰. 패널에 따라 GL 뷰이거나 CNSDK 뷰다. */
@@ -101,13 +133,17 @@ public class PlayerActivity extends Activity
     // 설정 패널
     private View settingsPanel;
     private Button btnSource, btnOutput, btnSwap, btnSubtitle, btnAspect, btnEngine;
-    private TextView statusText, subtitleName, aspectLabel;
-    private SeekBar  aspectSeek;
+    private TextView statusText, subtitleName, aspectLabel, convLabel;
+    private SeekBar  aspectSeek, convSeek;
+    /** 마지막 시차 측정 결과를 상태창에 남겨둔다. */
+    private String convMeasured = null;
 
     // 자막
     private Subtitles.Track subtitleTrack;
     private String lastCueText = null;
     private float subtitleScale = 1.0f;
+    /** 첫 자막의 실제 크기를 한 번만 남긴다. 크기 문제를 다시 만나면 이 줄로 판단한다. */
+    private boolean subtitleLogged = false;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private boolean seeking = false;
@@ -211,6 +247,23 @@ public class PlayerActivity extends Activity
         if (name == null) name = pendingUri.getLastPathSegment();
         mediaKey = name == null ? "" : name;
 
+        isPhoto = getIntent().getBooleanExtra(EXTRA_PHOTO, false) || looksLikePhoto(pendingUri);
+
+        if (isPhoto) {
+            // 이전/다음 사진으로 넘기려면 목록이 필요하다. 목록 화면과 같은 정렬을
+            // 다시 돌려서 지금 사진의 자리를 찾는다 (MediaLibrary 주석 참고).
+            String folder = getIntent().getStringExtra(EXTRA_FOLDER);
+            // 다른 앱이 인텐트로 넘겨준 사진이면 폴더를 모른다. 파일 경로에서 되찾는다.
+            if (folder == null) folder = MediaLibrary.folderOf(this, pendingUri);
+            photos = MediaLibrary.list(this, MediaLibrary.Kind.IMAGE, folder);
+            photoIndex = MediaLibrary.indexOf(photos, pendingUri);
+            beginPhoto();
+            applySavedSubtitlePrefs();
+            videoFile = resolveMediaFile(pendingUri);
+            refreshLabels();
+            return;
+        }
+
         SourceFormat saved = loadSavedFormat(mediaKey);
         if (saved != null) {
             // 전에 사용자가 직접 고른 값. 이건 무엇보다 우선한다.
@@ -228,7 +281,7 @@ public class PlayerActivity extends Activity
         }
 
         applySavedSubtitlePrefs();
-        videoFile = resolveVideoFile(pendingUri);
+        videoFile = resolveMediaFile(pendingUri);
         autoLoadSubtitle();
         refreshLabels();
     }
@@ -244,12 +297,109 @@ public class PlayerActivity extends Activity
         subtitleScale = Math.max(0.4f, sp.getInt(KEY_SUB_SCALE, 100) / 100f);
         glView.setSubtitleY(sp.getInt(KEY_SUB_Y, 4) / 100f);
         glView.setSubtitleDepth(sp.getInt(KEY_SUB_DEPTH, 0));
+        applySavedGeometryPrefs();
+    }
+
+    /**
+     * 파일마다 따로 기억하는 값 (화면 비, 수렴).
+     *
+     * 전역으로 두면 안 된다. 화면 비는 그 파일이 어떻게 눌려 담겼느냐의 문제이고,
+     * 수렴은 그 소스를 만들 때 쓴 설정의 문제라 둘 다 파일마다 다르다. 사진은
+     * 한 화면에서 계속 넘겨 보므로 넘길 때마다 다시 읽어야 한다.
+     */
+    private void applySavedGeometryPrefs() {
+        android.content.SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
         glView.setAspectOverride(sp.getFloat(KEY_ASPECT + mediaKey, 0f));
+        glView.setConvergence(sp.getFloat(KEY_CONV + mediaKey, 0f));
         syncAspectUi();
+        syncConvergenceUi();
     }
 
     private int dp(int v) {
         return (int) (v * getResources().getDisplayMetrics().density);
+    }
+
+    // ------------------------------------------------------------ 사진
+
+    /** 인텐트로 열렸을 때는 사진이라는 표시가 없다. MIME 과 확장자로 알아본다. */
+    private boolean looksLikePhoto(Uri uri) {
+        try {
+            String t = getContentResolver().getType(uri);
+            if (t != null) return t.startsWith("image/");
+        } catch (Exception ignored) { }
+        return MediaLibrary.isPhotoName(uri.getLastPathSegment());
+    }
+
+    /**
+     * 사진의 스테레오 배치를 정하고, 정해지면 띄운다.
+     *
+     * 영상과 달리 재생을 먼저 시작하지 않는다. 사진은 원본 해상도를 여는 즉시
+     * 정확히 읽을 수 있어서(inJustDecodeBounds) half/full 을 틀릴 일이 없고,
+     * 판별도 프레임 한 장이면 끝난다. 확정한 뒤에 띄우면 화면이 한 번도 안 튄다.
+     */
+    private void beginPhoto() {
+        SourceFormat saved = loadSavedFormat(mediaKey);
+        if (saved != null) {
+            manualChoice = true;
+            applySourceFormat(saved);
+            formatReady = true;
+            maybeStartPlayback();
+            return;
+        }
+
+        formatReady = false;
+        final Uri uri = pendingUri;
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final SourceFormat f = StereoDetect.detectImage(PlayerActivity.this, uri);
+                ui.post(new Runnable() {
+                    @Override public void run() {
+                        if (isFinishing()) return;
+                        if (uri != pendingUri) return;   // 그 사이 다른 사진으로 넘어갔다
+                        if (!manualChoice) {
+                            detected = (f != null);
+                            applySourceFormat(f == null ? SourceFormat.MONO_2D : f);
+                        }
+                        formatReady = true;
+                        maybeStartPlayback();
+                        refreshLabels();
+                    }
+                });
+            }
+        }, "photo-detect").start();
+    }
+
+    /** 목록에서 delta 만큼 떨어진 사진으로 넘어간다. 끝에서는 반대편으로 돈다. */
+    private void showPhoto(int delta) {
+        if (photos == null || photos.isEmpty()) return;
+        if (photoIndex < 0) photoIndex = 0;
+        int n = photos.size();
+        photoIndex = ((photoIndex + delta) % n + n) % n;
+
+        MediaLibrary.Item it = photos.get(photoIndex);
+        pendingUri = it.uri;
+        mediaKey   = it.name;
+
+        // 엔진을 먼저 놓는다. 배치가 바뀌면 패널이 출력면을 갈아끼우는데,
+        // 그때 프레임이 들어오고 있으면 서피스를 두고 다투게 된다.
+        if (engine != null) { engine.release(); engine = null; }
+
+        manualChoice = false;
+        detected     = false;
+        convMeasured = null;
+        applySavedGeometryPrefs();
+        videoFile = resolveMediaFile(pendingUri);
+
+        Toast.makeText(this, (photoIndex + 1) + " / " + n + "  " + it.name,
+                Toast.LENGTH_SHORT).show();
+        beginPhoto();
+        refreshLabels();
+    }
+
+    /** 세 조건이 다 서면 띄운다 ({@link #surfaceReady} 주석 참고). */
+    private void maybeStartPlayback() {
+        if (!surfaceReady || !panelReady || !formatReady) return;
+        startPlayback();
     }
 
     // ---------------------------------------------------------- 이어보기
@@ -290,8 +440,14 @@ public class PlayerActivity extends Activity
         writePosition(engine.getPosition(), engine.getDuration());
     }
 
-    /** 현재 위치에서 상대 이동. */
+    /** 현재 위치에서 상대 이동. 사진이면 이전/다음 장으로 넘어간다. */
     private void skip(long deltaMs) {
+        if (isPhoto) {
+            // 30초 -> 한 장, 5분 -> 열 장.
+            int step = Math.abs(deltaMs) >= 300_000L ? 10 : 1;
+            showPhoto(deltaMs > 0 ? step : -step);
+            return;
+        }
         if (engine == null) return;
         long dur = engine.getDuration();
         long target = engine.getPosition() + deltaMs;
@@ -322,6 +478,7 @@ public class PlayerActivity extends Activity
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // 빠른 이동. 짧게 = 30초, 길게 = 5분.
+        // 사진이면 시간이 없으니 같은 버튼을 이전/다음 장으로 쓴다 (길게 = 10장).
         addSkipButton(bottomBar, "◀◀", -30_000L, -300_000L);
 
         btnPlay = new Button(this);
@@ -493,13 +650,21 @@ public class PlayerActivity extends Activity
             }
         }));
 
-        p.addView(label("수렴점 (perOffset)"));
-        p.addView(slider(300, 150, new OnValue() {
-            @Override public void set(int v) {
-                glView.setPerOffset((v - 150) / 150f * 0.015f);
-                refreshLabels();
-            }
-        }));
+        // 수렴 보정.
+        //
+        // 게임에서 뽑은 SBS 는 만들 때의 화면과 convergence 설정이 픽셀 수로 굳어 있다.
+        // 그것을 태블릿 눈 상자(1920px)에 맞춰 늘리거나 줄이면 시차도 같은 비율로 변해
+        // 소스마다 입체가 다르게 느껴진다. 여기서 화면 기준으로 다시 맞춘다.
+        convLabel = label(convText());
+        p.addView(convLabel);
+        convSeek = slider(CONV_STEPS, convSliderInit(), new OnValue() {
+            @Override public void set(int v) { setConvergence(v - CONV_MID, true); }
+        });
+        p.addView(convSeek);
+
+        panelButton(p, "수렴 자동 (장면 중심을 화면에)", new View.OnClickListener() {
+            @Override public void onClick(View v) { autoConverge(); }
+        });
 
         p.addView(header("자막"));
         subtitleName = new TextView(this);
@@ -595,8 +760,11 @@ public class PlayerActivity extends Activity
 
     // -------------------------------------------------------------- 자막
 
-    /** content:// / file:// 에서 실제 파일 경로를 얻는다 (자막을 옆에서 찾기 위해). */
-    private File resolveVideoFile(Uri uri) {
+    /**
+     * content:// / file:// 에서 실제 파일 경로를 얻는다 (자막을 옆에서 찾기 위해).
+     * 사진에도 그대로 쓴다 — MediaStore 의 DATA 컬럼 이름("_data")이 영상과 같다.
+     */
+    private File resolveMediaFile(Uri uri) {
         try {
             if ("file".equals(uri.getScheme()) && uri.getPath() != null) {
                 return new File(uri.getPath());
@@ -716,12 +884,26 @@ public class PlayerActivity extends Activity
 
         savePositionPeriodically(pos, dur);
 
-        // 자막
+        // 자막.
+        //
+        // 크기 기준을 뷰가 아니라 "눈 하나" 로 잡는다. 뷰 크기를 쓰면 Lume Pad 2 에서
+        // 자막이 눈곱만 하게 나온다 — 그 기기는 화면을 CNSDK 뷰가 차지하고 우리
+        // GLSurfaceView 는 1x1 로 깔려 있어서, 글자 18px · 폭 64px 짜리 비트맵이
+        // 만들어지고 한 줄에 한두 글자씩 끊긴다 (코랄라인·스파이더맨에서 확인).
+        int subW = glView.eyeWidthPx(), subH = glView.eyeHeightPx();
+        if (subW <= 0 || subH <= 0) return;      // 아직 표면이 없다. 다음 틱에 다시.
+
         String cue = subtitleTrack == null ? null : subtitleTrack.textAt(pos);
         if (cue == null ? lastCueText != null : !cue.equals(lastCueText)) {
             lastCueText = cue;
-            Bitmap bmp = cue == null ? null : SubtitleBitmap.render(
-                    cue, glView.getWidth(), glView.getHeight(), subtitleScale);
+            Bitmap bmp = cue == null ? null
+                    : SubtitleBitmap.render(cue, subW, subH, subtitleScale);
+            if (bmp != null && !subtitleLogged) {
+                subtitleLogged = true;
+                Log.i(TAG, "자막 기준 상자 " + subW + "x" + subH
+                        + " -> 비트맵 " + bmp.getWidth() + "x" + bmp.getHeight()
+                        + " (배율 " + subtitleScale + ")");
+            }
             glView.setSubtitleBitmap(bmp);
         }
     }
@@ -776,6 +958,116 @@ public class PlayerActivity extends Activity
         return Math.max(0, Math.min(200, Math.round(a * 100f) - 100));
     }
 
+    // ---------------------------------------------------------- 수렴 보정
+
+    /** 슬라이더 눈금. 화면 시차 -320 ~ +320 px 을 2px 단위로 훑는다. */
+    private static final int CONV_MID   = (int) Stereo3DView.CONVERGENCE_MAX;
+    private static final int CONV_STEPS = CONV_MID * 2;
+
+    private String convText() {
+        float c = glView == null ? 0f : glView.getConvergence();
+        if (c == 0f) return "수렴 보정 — 소스 그대로";
+        return String.format(Locale.US, "수렴 보정 — %+.0f px  (%s)",
+                c, c > 0 ? "화면 뒤로" : "화면 앞으로");
+    }
+
+    private int convSliderInit() {
+        float c = glView == null ? 0f : glView.getConvergence();
+        return Math.max(0, Math.min(CONV_STEPS, Math.round(c) + CONV_MID));
+    }
+
+    private void setConvergence(float px, boolean save) {
+        glView.setConvergence(px);
+        if (save && mediaKey != null && !mediaKey.isEmpty()) {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putFloat(KEY_CONV + mediaKey, glView.getConvergence()).apply();
+        }
+        if (convLabel != null) convLabel.setText(convText());
+        refreshLabels();
+    }
+
+    /** 저장값을 슬라이더에 반영한다. 사진을 넘길 때마다 값이 바뀐다. */
+    private void syncConvergenceUi() {
+        if (convLabel != null) convLabel.setText(convText());
+        if (convSeek  != null) convSeek.setProgress(convSliderInit());
+    }
+
+    /**
+     * 지금 그림의 시차를 재서 수렴을 맞춘다.
+     *
+     * 규칙은 하나다 — <b>가장 앞에 있는 것을 화면 평면에 놓는다</b>. 그러면 장면
+     * 전체가 화면 뒤로 들어가 창틀 충돌(화면 가장자리에서 잘리는 물체가 앞으로
+     * 튀어나와 보이는 모순)이 사라진다. 거기서 슬라이더를 음수 쪽으로 당기면
+     * 원하는 만큼 앞으로 끌어낼 수 있다.
+     *
+     * 재는 값이 화면 픽셀이라 소스 해상도가 3344 든 5120 이든 결과가 같다.
+     */
+    private void autoConverge() {
+        final SourceFormat f = glView.getSourceFormat();
+        if (f == SourceFormat.MONO_2D) {
+            Toast.makeText(this, "2D 소스에는 잴 시차가 없습니다.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final int eyeW = glView.eyeWidthPx();
+        if (eyeW <= 0) {
+            Toast.makeText(this, "화면이 아직 준비되지 않았습니다.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, "시차를 재는 중…", Toast.LENGTH_SHORT).show();
+
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final Bitmap frame = currentFrame();
+                final Disparity.Result r = Disparity.measure(frame, f);
+                // 사진은 엔진이 들고 있는 원본이라 여기서 버리면 안 된다.
+                if (frame != null && !isPhoto && !frame.isRecycled()) frame.recycle();
+
+                ui.post(new Runnable() {
+                    @Override public void run() {
+                        if (isFinishing()) return;
+                        if (r == null) {
+                            convMeasured = null;
+                            Toast.makeText(PlayerActivity.this,
+                                    "시차를 재지 못했습니다. 무늬가 뚜렷한 장면에서 다시 눌러보세요.",
+                                    Toast.LENGTH_LONG).show();
+                            refreshLabels();
+                            return;
+                        }
+                        int near = r.nearPx(eyeW), far = r.farPx(eyeW);
+                        int mid  = r.medianPx(eyeW);
+                        convMeasured = String.format(Locale.US,
+                                "측정 시차 %+d … %+d px (중앙 %+d, 표본 %d)",
+                                near, far, mid, r.samples);
+                        setConvergence(r.centerOnScreen(eyeW), true);
+                        syncConvergenceUi();
+                        Toast.makeText(PlayerActivity.this,
+                                convMeasured + "\n장면 중심을 화면에 맞췄습니다.",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+        }, "converge").start();
+    }
+
+    /** 시차를 잴 한 장. 사진은 이미 들고 있고, 영상은 지금 지점을 다시 뜯는다. */
+    private Bitmap currentFrame() {
+        if (isPhoto) {
+            return (engine instanceof com.nauty.p3d.engine.PhotoEngine)
+                    ? ((com.nauty.p3d.engine.PhotoEngine) engine).frame() : null;
+        }
+        android.media.MediaMetadataRetriever r = new android.media.MediaMetadataRetriever();
+        try {
+            r.setDataSource(this, pendingUri);
+            long at = engine == null ? 0 : engine.getPosition();
+            return r.getFrameAtTime(at * 1000L,
+                    android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            try { r.release(); } catch (Exception ignored) { }
+        }
+    }
+
     private void dumpFrame(final int ms) {
         new Thread(new Runnable() {
             @Override public void run() {
@@ -827,6 +1119,17 @@ public class PlayerActivity extends Activity
 
     private void refreshLabels() {
         btnPlay.setText(engine != null && engine.isPlaying() ? "❚❚" : "▶");
+
+        // 사진에는 시간축이 없다. 재생/탐색 자리에 몇 번째 장인지를 대신 보여준다.
+        if (isPhoto) {
+            btnPlay.setVisibility(View.GONE);
+            seekBar.setVisibility(View.GONE);
+            // 다른 앱이 인텐트로 넘겨준 사진은 목록에 없을 수 있다 (photoIndex < 0).
+            int n = photos == null ? 0 : photos.size();
+            timeText.setText(n == 0 || photoIndex < 0
+                    ? "사진" : (photoIndex + 1) + " / " + n);
+        }
+
         if (btnSource == null || btnSwap == null) return;   // 패널 구성 전이면 건너뛴다
 
         btnSource.setText("소스: " + glView.getSourceFormat().label);
@@ -840,7 +1143,11 @@ public class PlayerActivity extends Activity
         btnOutput.setText("출력: " + out);
         btnSwap.setText(glView.isSwapLR() ? "좌우반전 ON" : "좌우반전 OFF");
         if (btnAspect != null) btnAspect.setText("화면 비: " + aspectLabel(glView.getAspectOverride()));
-        if (btnEngine != null) btnEngine.setText("엔진: " + currentKind().label);
+        if (btnEngine != null) {
+            // 사진에는 고를 엔진이 없다.
+            btnEngine.setVisibility(isPhoto ? View.GONE : View.VISIBLE);
+            btnEngine.setText("엔진: " + currentKind().label);
+        }
         updateSubtitleName();
 
         // 지금 소스 포맷이 어디서 왔는지 보여준다. 수동으로 잘못 고른 상태를 알아채야 하기 때문.
@@ -848,9 +1155,10 @@ public class PlayerActivity extends Activity
                                   : (detected ? "자동 판별" : "판별 중…");
 
         statusText.setText(String.format(Locale.US,
-                "%s · %s · %s\n소스: %s\n깊이 %.2f · 수렴 %+.4f",
+                "%s · %s · %s\n소스: %s\n깊이 %.2f · 수렴 %+.0f px%s",
                 currentKind().label, glView.getSourceFormat().label, out,
-                how, glView.getDepth(), glView.getPerOffset()));
+                how, glView.getDepth(), glView.getConvergence(),
+                convMeasured == null ? "" : "\n" + convMeasured));
     }
 
     /** 이 파일에 저장된 소스 선택을 지우고 픽셀 판별을 다시 돌린다. */
@@ -1064,19 +1372,47 @@ public class PlayerActivity extends Activity
     public void onSurfaceReady(Surface surface, SurfaceTexture surfaceTexture) {
         videoSurface        = surface;
         videoSurfaceTexture = surfaceTexture;
+        surfaceReady = true;
         // 패널이 3D 를 낼 준비가 될 때까지 재생을 미룬다.
         // (PanelBackend.whenReady 주석 참고 — ProMa 는 즉시 실행된다)
         if (panel != null) {
             panel.whenReady(new Runnable() {
-                @Override public void run() { startPlayback(); }
+                @Override public void run() {
+                    panelReady = true;
+                    maybeStartPlayback();
+                }
             });
         } else {
-            startPlayback();
+            panelReady = true;
+            maybeStartPlayback();
         }
     }
 
     private void startPlayback() {
         if (videoSurface == null || pendingUri == null || engine != null) return;
+
+        // 디버그: --ei conv N 이면 수렴 보정을 N px 로 고정한다 (슬라이더와 같은 눈금).
+        // 보정이 실제로 걸리는지는 값을 손으로 고정해서 재봐야 확인이 된다.
+        int convPx = getIntent().getIntExtra("conv", Integer.MIN_VALUE);
+        if (convPx != Integer.MIN_VALUE) setConvergence(convPx, false);
+
+        // 사진은 디코딩할 것도, 고를 엔진도 없다. 한 장을 정지 프레임으로 흘려보내면
+        // 그 아래 3D 경로는 영상과 완전히 같다 (PhotoEngine 주석 참고).
+        if (isPhoto) {
+            engine = new com.nauty.p3d.engine.PhotoEngine();
+            engine.open(this, pendingUri, videoSurface, videoSurfaceTexture, this);
+            ui.removeCallbacks(ticker);
+            ui.post(ticker);
+            refreshLabels();
+            // 디버그: --ez autoconv true 면 뜨자마자 수렴을 재서 맞춘다.
+            // 버튼을 눌러줄 사람 없이 로그로 확인할 수 있어야 한다.
+            if (getIntent().getBooleanExtra("autoconv", false)) {
+                ui.postDelayed(new Runnable() {
+                    @Override public void run() { autoConverge(); }
+                }, 800);
+            }
+            return;
+        }
 
         // 큰 소스는 소프트웨어 폴백이 걸리면 재생이 무너진다. 그때는 폴백을 막고
         // MediaCodec 만 쓰게 한다. 실패하면 onError 에서 한 번 풀고 다시 연다.

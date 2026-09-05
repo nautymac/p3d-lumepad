@@ -26,7 +26,9 @@ public interface VideoEngine {
     /** 엔진 종류. 설정 저장과 UI 표시에 쓴다. */
     enum Kind {
         EXO("ExoPlayer"),
-        VLC("libVLC");
+        VLC("libVLC"),
+        /** 사진 한 장을 정지 프레임으로 흘려보낸다 (PhotoEngine). 재생 엔진 순환에는 넣지 않는다. */
+        PHOTO("사진");
 
         public final String label;
         Kind(String l) { label = l; }
