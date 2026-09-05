@@ -158,7 +158,7 @@ public class LeiaSpikeActivity extends Activity implements LeiaSDK.Delegate {
                         fmt = d;
                         if (stereo != null) stereo.setSourceFormat(d);
                         Log.i(TAG, "픽셀 판별 결과: " + d);
-                        Toast.makeText(LeiaSpikeActivity.this, "소스: " + d.label, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(LeiaSpikeActivity.this, "소스: " + d.tag, Toast.LENGTH_SHORT).show();
                     }
                 });
             }

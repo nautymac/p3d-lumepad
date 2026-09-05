@@ -57,8 +57,8 @@ public final class MediaLibrary {
         }
 
         /** 목록에 보일 이름. 내부 저장소 앞부분은 다들 같으니 떼고 보여준다. */
-        public String display() {
-            return (favorite ? "★ " : "") + shortPath(path) + "   (" + count + ")";
+        public String display(Context ctx) {
+            return (favorite ? "★ " : "") + shortPath(ctx, path) + "   (" + count + ")";
         }
     }
 
@@ -218,11 +218,11 @@ public final class MediaLibrary {
      * 이 기기는 영상이 내장과 SD 양쪽에 흩어져 있다. 앞부분이 다 같은 글자라
      * 그대로 두면 정작 구별되는 뒷부분이 화면 밖으로 밀린다.
      */
-    public static String shortPath(String path) {
+    public static String shortPath(Context ctx, String path) {
         if (path == null) return "";
         try {
             String root = android.os.Environment.getExternalStorageDirectory().getAbsolutePath();
-            if (path.equals(root)) return "내장 저장소";
+            if (path.equals(root)) return ctx.getString(R.string.internal_storage);
             if (path.startsWith(root + "/")) return path.substring(root.length() + 1);
         } catch (Throwable ignored) { }
 

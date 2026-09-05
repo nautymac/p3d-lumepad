@@ -163,7 +163,7 @@ public class PlayerActivity extends Activity
 
         pendingUri = getIntent().getData();
         if (pendingUri == null) {
-            Toast.makeText(this, "재생할 영상이 지정되지 않았습니다", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, R.string.no_media, Toast.LENGTH_LONG).show();
             finish();
             return;
         }
@@ -468,7 +468,7 @@ public class PlayerActivity extends Activity
         bottomBar.setClickable(true);          // 터치가 glView 로 새지 않게
 
         btnList = new Button(this);
-        btnList.setText("≡ 목록");
+        btnList.setText(R.string.btn_list);
         btnList.setAllCaps(false);
         btnList.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { backToList(); }
@@ -518,7 +518,7 @@ public class PlayerActivity extends Activity
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         btnSettings = new Button(this);
-        btnSettings.setText("⚙ 설정");
+        btnSettings.setText(R.string.btn_settings);
         btnSettings.setAllCaps(false);
         btnSettings.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -583,15 +583,15 @@ public class PlayerActivity extends Activity
         statusText.setTextSize(12f);
         p.addView(statusText);
 
-        p.addView(header("3D"));
-        btnSource = panelButton(p, "소스", new View.OnClickListener() {
+        p.addView(header(getString(R.string.hdr_3d)));
+        btnSource = panelButton(p, getString(R.string.btn_source, ""), new View.OnClickListener() {
             @Override public void onClick(View v) {
                 manualChoice = true;
                 applySourceFormat(glView.getSourceFormat().next());
                 refreshLabels();
             }
         });
-        btnOutput = panelButton(p, "출력", new View.OnClickListener() {
+        btnOutput = panelButton(p, getString(R.string.btn_output, ""), new View.OnClickListener() {
             @Override public void onClick(View v) {
                 Stereo3DView.Output[] cycle = {
                         Stereo3DView.Output.THREE_D,
@@ -604,7 +604,7 @@ public class PlayerActivity extends Activity
                 refreshLabels();
             }
         });
-        btnSwap = panelButton(p, "좌우반전", new View.OnClickListener() {
+        btnSwap = panelButton(p, getString(R.string.btn_swap_off), new View.OnClickListener() {
             @Override public void onClick(View v) {
                 glView.setSwapLR(!glView.isSwapLR());
                 refreshLabels();
@@ -613,13 +613,13 @@ public class PlayerActivity extends Activity
 
         // 소스를 잘못 건드리면 그 선택이 이 파일에 저장돼 이후 자동 판별이 막힌다.
         // 되돌릴 방법이 있어야 한다.
-        panelButton(p, "↺ 자동 판별로 되돌리기", new View.OnClickListener() {
+        panelButton(p, getString(R.string.btn_redetect), new View.OnClickListener() {
             @Override public void onClick(View v) { redetect(); }
         });
 
         // 소스 비율이 틀리게 담긴 파일이 흔하다 (2.39:1 영화를 16:10 에 늘려 담은 것 등).
         // 자주 쓰는 컨트롤이라 자막 설정보다 위, 기하 그룹에 둔다.
-        btnAspect = panelButton(p, "화면 비", new View.OnClickListener() {
+        btnAspect = panelButton(p, getString(R.string.btn_aspect, ""), new View.OnClickListener() {
             @Override public void onClick(View v) { cycleAspect(); }
         });
 
@@ -640,7 +640,7 @@ public class PlayerActivity extends Activity
         });
         p.addView(aspectSeek);
 
-        p.addView(label("깊이 (2D→3D 시차 강도)"));
+        p.addView(label(getString(R.string.lbl_depth)));
         p.addView(slider(300, 100, new OnValue() {
             @Override public void set(int v) {
                 glView.setDepth(v / 100f);
@@ -661,24 +661,24 @@ public class PlayerActivity extends Activity
         });
         p.addView(convSeek);
 
-        panelButton(p, "수렴 자동 (장면 중심을 화면에)", new View.OnClickListener() {
+        panelButton(p, getString(R.string.btn_auto_converge), new View.OnClickListener() {
             @Override public void onClick(View v) { autoConverge(); }
         });
 
-        p.addView(header("자막"));
+        p.addView(header(getString(R.string.hdr_subtitle)));
         subtitleName = new TextView(this);
         subtitleName.setTextColor(Color.LTGRAY);
         subtitleName.setTextSize(11f);
         p.addView(subtitleName);
 
-        btnSubtitle = panelButton(p, "자막 선택", new View.OnClickListener() {
+        btnSubtitle = panelButton(p, getString(R.string.btn_pick_subtitle), new View.OnClickListener() {
             @Override public void onClick(View v) { pickSubtitle(); }
         });
 
         // 자막 관련 값은 저장해 둔다. 매번 다시 맞추게 하면 안 된다.
         final android.content.SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
 
-        p.addView(label("자막 크기"));
+        p.addView(label(getString(R.string.lbl_sub_size)));
         p.addView(slider(200, sp.getInt(KEY_SUB_SCALE, 100), new OnValue() {
             @Override public void set(int v) {
                 subtitleScale = Math.max(0.4f, v / 100f);
@@ -687,7 +687,7 @@ public class PlayerActivity extends Activity
             }
         }));
 
-        p.addView(label("자막 위치 (아래에서 올림)"));
+        p.addView(label(getString(R.string.lbl_sub_pos)));
         p.addView(slider(40, sp.getInt(KEY_SUB_Y, 4), new OnValue() {
             @Override public void set(int v) {
                 glView.setSubtitleY(v / 100f);
@@ -695,7 +695,7 @@ public class PlayerActivity extends Activity
             }
         }));
 
-        p.addView(label("자막 깊이 (앞으로 튀어나옴)"));
+        p.addView(label(getString(R.string.lbl_sub_depth)));
         p.addView(slider(60, sp.getInt(KEY_SUB_DEPTH, 0), new OnValue() {
             @Override public void set(int v) {
                 glView.setSubtitleDepth(v);
@@ -703,7 +703,7 @@ public class PlayerActivity extends Activity
             }
         }));
 
-        btnEngine = panelButton(p, "엔진", new View.OnClickListener() {
+        btnEngine = panelButton(p, getString(R.string.btn_engine, ""), new View.OnClickListener() {
             @Override public void onClick(View v) { switchEngine(); }
         });
 
@@ -795,17 +795,19 @@ public class PlayerActivity extends Activity
         lastCueText = null;
         glView.setSubtitleBitmap(null);
         if (subtitleTrack == null) {
-            Toast.makeText(this, "자막을 읽지 못했습니다: " + f.getName(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.sub_load_failed, f.getName()),
+                    Toast.LENGTH_LONG).show();
         } else {
-            Toast.makeText(this, "자막 " + subtitleTrack.name
-                    + " (" + subtitleTrack.size() + "개)", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.sub_loaded,
+                    subtitleTrack.name, subtitleTrack.size()), Toast.LENGTH_SHORT).show();
         }
         updateSubtitleName();
     }
 
     private void updateSubtitleName() {
         if (subtitleName == null) return;
-        subtitleName.setText(subtitleTrack == null ? "자막 없음" : subtitleTrack.name);
+        subtitleName.setText(subtitleTrack == null
+                ? getString(R.string.sub_none) : subtitleTrack.name);
     }
 
     /** 영상 폴더 + 흔한 폴더에서 자막 파일을 모아 고르게 한다. */
@@ -830,18 +832,16 @@ public class PlayerActivity extends Activity
         }
 
         final String[] items = new String[found.size() + 1];
-        items[0] = "자막 없음";
+        items[0] = getString(R.string.sub_none);
         for (int i = 0; i < found.size(); i++) items[i + 1] = found.get(i).getName();
 
         if (found.isEmpty()) {
-            Toast.makeText(this,
-                    "자막 파일을 찾지 못했습니다.\n영상과 같은 폴더나 Movies/Download 에 .srt/.smi 를 두세요.",
-                    Toast.LENGTH_LONG).show();
+            Toast.makeText(this, R.string.sub_not_found, Toast.LENGTH_LONG).show();
             return;
         }
 
         new AlertDialog.Builder(this)
-                .setTitle("자막 선택")
+                .setTitle(R.string.btn_pick_subtitle)
                 .setItems(items, (d, which) -> {
                     if (which == 0) {
                         subtitleTrack = null;
@@ -871,7 +871,8 @@ public class PlayerActivity extends Activity
             if (target < dur - END_MARGIN_MS) {
                 engine.seekTo(target);
                 lastCueText = null;                    // 자막 다시 계산
-                Toast.makeText(this, "이어보기 " + fmt(target), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.toast_resume, fmt(target)),
+                        Toast.LENGTH_SHORT).show();
             }
         }
 
@@ -928,9 +929,9 @@ public class PlayerActivity extends Activity
             0f, 16f / 9f, 2.40f, 1.85f, 4f / 3f, Stereo3DView.ASPECT_FILL
     };
 
-    private static String aspectLabel(float a) {
-        if (a == 0f)                        return "자동";
-        if (a == Stereo3DView.ASPECT_FILL)  return "꽉 채우기";
+    private String aspectLabel(float a) {
+        if (a == 0f)                        return getString(R.string.aspect_auto);
+        if (a == Stereo3DView.ASPECT_FILL)  return getString(R.string.aspect_fill);
         if (Math.abs(a - 16f / 9f)  < 0.01f) return "16:9";
         if (Math.abs(a - 2.40f)     < 0.01f) return "2.40:1";
         if (Math.abs(a - 1.85f)     < 0.01f) return "1.85:1";
@@ -947,8 +948,8 @@ public class PlayerActivity extends Activity
     /** 슬라이더 위치 -> 표시용 문구. 자동이면 소스가 시키는 대로라는 뜻이다. */
     private String aspectSliderText() {
         float a = glView == null ? 0f : glView.getAspectOverride();
-        if (a <= 0f) return "화면 비 미세조정 (지금은 자동)";
-        return String.format(Locale.US, "화면 비 미세조정 — %.2f : 1", a);
+        if (a <= 0f) return getString(R.string.lbl_aspect_off);
+        return getString(R.string.lbl_aspect_on, a);
     }
 
     private int aspectSliderInit() {
@@ -965,9 +966,9 @@ public class PlayerActivity extends Activity
 
     private String convText() {
         float c = glView == null ? 0f : glView.getConvergence();
-        if (c == 0f) return "수렴 보정 — 소스 그대로";
-        return String.format(Locale.US, "수렴 보정 — %+.0f px  (%s)",
-                c, c > 0 ? "화면 뒤로" : "화면 앞으로");
+        if (c == 0f) return getString(R.string.lbl_conv_off);
+        return getString(R.string.lbl_conv_on, c,
+                getString(c > 0 ? R.string.conv_behind : R.string.conv_front));
     }
 
     private int convSliderInit() {
@@ -1004,15 +1005,15 @@ public class PlayerActivity extends Activity
     private void autoConverge() {
         final SourceFormat f = glView.getSourceFormat();
         if (f == SourceFormat.MONO_2D) {
-            Toast.makeText(this, "2D 소스에는 잴 시차가 없습니다.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_no_parallax_2d, Toast.LENGTH_SHORT).show();
             return;
         }
         final int eyeW = glView.eyeWidthPx();
         if (eyeW <= 0) {
-            Toast.makeText(this, "화면이 아직 준비되지 않았습니다.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.toast_screen_not_ready, Toast.LENGTH_SHORT).show();
             return;
         }
-        Toast.makeText(this, "시차를 재는 중…", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, R.string.toast_measuring, Toast.LENGTH_SHORT).show();
 
         new Thread(new Runnable() {
             @Override public void run() {
@@ -1027,20 +1028,18 @@ public class PlayerActivity extends Activity
                         if (r == null) {
                             convMeasured = null;
                             Toast.makeText(PlayerActivity.this,
-                                    "시차를 재지 못했습니다. 무늬가 뚜렷한 장면에서 다시 눌러보세요.",
-                                    Toast.LENGTH_LONG).show();
+                                    R.string.toast_measure_failed, Toast.LENGTH_LONG).show();
                             refreshLabels();
                             return;
                         }
                         int near = r.nearPx(eyeW), far = r.farPx(eyeW);
                         int mid  = r.medianPx(eyeW);
-                        convMeasured = String.format(Locale.US,
-                                "측정 시차 %+d … %+d px (중앙 %+d, 표본 %d)",
+                        convMeasured = getString(R.string.conv_measured,
                                 near, far, mid, r.samples);
                         setConvergence(r.centerOnScreen(eyeW), true);
                         syncConvergenceUi();
                         Toast.makeText(PlayerActivity.this,
-                                convMeasured + "\n장면 중심을 화면에 맞췄습니다.",
+                                getString(R.string.conv_applied, convMeasured),
                                 Toast.LENGTH_LONG).show();
                     }
                 });
@@ -1126,37 +1125,41 @@ public class PlayerActivity extends Activity
             // 다른 앱이 인텐트로 넘겨준 사진은 목록에 없을 수 있다 (photoIndex < 0).
             int n = photos == null ? 0 : photos.size();
             timeText.setText(n == 0 || photoIndex < 0
-                    ? "사진" : (photoIndex + 1) + " / " + n);
+                    ? getString(R.string.photo_label) : (photoIndex + 1) + " / " + n);
         }
 
         if (btnSource == null || btnSwap == null) return;   // 패널 구성 전이면 건너뛴다
 
-        btnSource.setText("소스: " + glView.getSourceFormat().label);
+        String fmt = glView.getSourceFormat().label(this);
+        btnSource.setText(getString(R.string.btn_source, fmt));
 
         String out;
         switch (glView.getOutput()) {
-            case THREE_D: out = "3D 출력";   break;
-            case TWO_D:   out = "2D 출력";   break;
-            default:      out = "SBS 확인"; break;
+            case THREE_D: out = getString(R.string.out_3d);  break;
+            case TWO_D:   out = getString(R.string.out_2d);  break;
+            default:      out = getString(R.string.out_sbs); break;
         }
-        btnOutput.setText("출력: " + out);
-        btnSwap.setText(glView.isSwapLR() ? "좌우반전 ON" : "좌우반전 OFF");
-        if (btnAspect != null) btnAspect.setText("화면 비: " + aspectLabel(glView.getAspectOverride()));
+        btnOutput.setText(getString(R.string.btn_output, out));
+        btnSwap.setText(glView.isSwapLR() ? R.string.btn_swap_on : R.string.btn_swap_off);
+        if (btnAspect != null) {
+            btnAspect.setText(getString(R.string.btn_aspect,
+                    aspectLabel(glView.getAspectOverride())));
+        }
+        String engineName = getString(currentKind().labelRes);
         if (btnEngine != null) {
             // 사진에는 고를 엔진이 없다.
             btnEngine.setVisibility(isPhoto ? View.GONE : View.VISIBLE);
-            btnEngine.setText("엔진: " + currentKind().label);
+            btnEngine.setText(getString(R.string.btn_engine, engineName));
         }
         updateSubtitleName();
 
         // 지금 소스 포맷이 어디서 왔는지 보여준다. 수동으로 잘못 고른 상태를 알아채야 하기 때문.
-        String how = manualChoice ? "수동 선택 (저장됨)"
-                                  : (detected ? "자동 판별" : "판별 중…");
+        String how = getString(manualChoice ? R.string.status_manual
+                : (detected ? R.string.status_auto : R.string.status_detecting));
 
-        statusText.setText(String.format(Locale.US,
-                "%s · %s · %s\n소스: %s\n깊이 %.2f · 수렴 %+.0f px%s",
-                currentKind().label, glView.getSourceFormat().label, out,
-                how, glView.getDepth(), glView.getConvergence(),
+        statusText.setText(getString(R.string.status_line,
+                engineName, fmt, out, how,
+                glView.getDepth(), glView.getConvergence(),
                 convMeasured == null ? "" : "\n" + convMeasured));
     }
 
@@ -1168,7 +1171,7 @@ public class PlayerActivity extends Activity
         }
         manualChoice = false;
         detected = false;
-        Toast.makeText(this, "저장된 선택을 지우고 다시 판별합니다…", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, R.string.toast_redetect, Toast.LENGTH_SHORT).show();
         startStereoDetection();
         refreshLabels();
     }
@@ -1195,7 +1198,8 @@ public class PlayerActivity extends Activity
                         refreshLabels();
                         if (f != before) {
                             Toast.makeText(PlayerActivity.this,
-                                    "3D 자동 인식: " + f.label, Toast.LENGTH_SHORT).show();
+                                    getString(R.string.toast_detected, f.label(PlayerActivity.this)),
+                                    Toast.LENGTH_SHORT).show();
                         }
                     }
                 });
@@ -1349,8 +1353,8 @@ public class PlayerActivity extends Activity
         if (at > 0) pendingResumeMs = at;
 
         Toast.makeText(this, next == VideoEngine.Kind.EXO
-                        ? "ExoPlayer — 하드웨어 디코딩 + FFmpeg 오디오"
-                        : "libVLC — 이 기기에선 항상 소프트웨어 디코딩 (4K는 끊김)",
+                        ? getString(R.string.engine_exo_note)
+                        : getString(R.string.engine_vlc_note),
                 Toast.LENGTH_LONG).show();
         refreshLabels();
     }
@@ -1530,7 +1534,8 @@ public class PlayerActivity extends Activity
     public void onError(final String message) {
         ui.post(new Runnable() {
             @Override public void run() {
-                Toast.makeText(PlayerActivity.this, "재생 오류: " + message, Toast.LENGTH_LONG).show();
+                Toast.makeText(PlayerActivity.this, getString(R.string.play_error, message),
+                        Toast.LENGTH_LONG).show();
             }
         });
     }

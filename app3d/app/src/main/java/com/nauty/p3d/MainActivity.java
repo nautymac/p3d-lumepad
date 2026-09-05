@@ -60,7 +60,7 @@ public class MainActivity extends Activity {
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        btnMode = addButton(row, "사진 보기", new View.OnClickListener() {
+        btnMode = addButton(row, getString(R.string.mode_photos), new View.OnClickListener() {
             @Override public void onClick(View v) {
                 kind = (kind == MediaLibrary.Kind.VIDEO)
                         ? MediaLibrary.Kind.IMAGE : MediaLibrary.Kind.VIDEO;
@@ -68,7 +68,7 @@ public class MainActivity extends Activity {
                 reload();
             }
         });
-        addButton(row, "URL/스트리밍 열기", new View.OnClickListener() {
+        addButton(row, getString(R.string.open_url), new View.OnClickListener() {
             @Override public void onClick(View v) { askUrl(); }
         });
         root.addView(row);
@@ -83,7 +83,7 @@ public class MainActivity extends Activity {
         empty.setTextColor(Color.GRAY);
         empty.setGravity(Gravity.CENTER);
         empty.setPadding(0, 48, 0, 48);
-        empty.setText("찾는 중...");
+        empty.setText(R.string.searching);
         root.addView(empty);
 
         list = new ListView(this);
@@ -106,7 +106,8 @@ public class MainActivity extends Activity {
                 String path = folders.get(pos).path;
                 boolean on = MediaLibrary.toggleFavorite(MainActivity.this, path);
                 Toast.makeText(MainActivity.this,
-                        MediaLibrary.shortPath(path) + (on ? " 고정" : " 고정 해제"),
+                        getString(on ? R.string.folder_pinned : R.string.folder_unpinned,
+                                MediaLibrary.shortPath(MainActivity.this, path)),
                         Toast.LENGTH_SHORT).show();
                 reload();
                 return true;
@@ -163,7 +164,7 @@ public class MainActivity extends Activity {
 
     private void reload() {
         boolean photo = (kind == MediaLibrary.Kind.IMAGE);
-        btnMode.setText(photo ? "영상 보기" : "사진 보기");
+        btnMode.setText(photo ? R.string.mode_videos : R.string.mode_photos);
 
         if (openFolder == null) loadFolders(photo);
         else                    loadFiles(photo);
@@ -181,11 +182,10 @@ public class MainActivity extends Activity {
             return;
         }
 
-        crumb.setText((photo ? "사진" : "영상") + " 폴더  ·  길게 눌러 위로 고정");
+        crumb.setText(photo ? R.string.crumb_photo_folders : R.string.crumb_video_folders);
         List<String> display = new ArrayList<>();
-        for (MediaLibrary.Folder f : folders) display.add(f.display());
-        show(display, photo ? "기기에서 사진을 찾지 못했습니다."
-                            : "기기에서 영상을 찾지 못했습니다.\n위의 URL/스트리밍 열기 를 쓰세요.");
+        for (MediaLibrary.Folder f : folders) display.add(f.display(this));
+        show(display, getString(photo ? R.string.empty_photos : R.string.empty_videos));
     }
 
     private void loadFiles(boolean photo) {
@@ -199,11 +199,11 @@ public class MainActivity extends Activity {
             // 영상은 이름으로 3D 를 추측해 같이 보여준다. 사진은 그럴 필요가 없다 —
             // 원본 해상도를 정확히 읽을 수 있어서 뷰어가 열면서 바로 판별한다.
             SourceFormat f = photo ? null : SourceFormat.fromName(it.name);
-            display.add(f == null ? it.name : it.name + "   [" + f.label + "]");
+            display.add(f == null ? it.name : it.name + "   [" + f.label(this) + "]");
         }
-        crumb.setText("◀ " + MediaLibrary.shortPath(openFolder)
-                + "   (" + items.size() + ")");
-        show(display, "이 폴더가 비었습니다.");
+        crumb.setText(getString(R.string.crumb_in_folder,
+                MediaLibrary.shortPath(this, openFolder), items.size()));
+        show(display, getString(R.string.empty_folder));
     }
 
     /**
@@ -247,7 +247,7 @@ public class MainActivity extends Activity {
                                     @Override public void run() {
                                         reload();
                                         Toast.makeText(MainActivity.this,
-                                                "새 파일 " + paths.length + "개를 목록에 넣었습니다",
+                                                getString(R.string.scanned_new, paths.length),
                                                 Toast.LENGTH_SHORT).show();
                                     }
                                 });
@@ -309,15 +309,15 @@ public class MainActivity extends Activity {
 
     private void askUrl() {
         final EditText in = new EditText(this);
-        in.setHint("http(s)://... .mp4 / .m3u8 / .mpd / rtsp://...");
+        in.setHint(R.string.url_hint);
         new AlertDialog.Builder(this)
-                .setTitle("스트리밍 주소 열기")
+                .setTitle(R.string.dlg_url_title)
                 .setView(in)
-                .setPositiveButton("재생", (d, w) -> {
+                .setPositiveButton(R.string.action_play, (d, w) -> {
                     String u = in.getText().toString().trim();
                     if (!u.isEmpty()) open(Uri.parse(u), u);
                 })
-                .setNegativeButton("취소", null)
+                .setNegativeButton(R.string.action_cancel, null)
                 .show();
     }
 

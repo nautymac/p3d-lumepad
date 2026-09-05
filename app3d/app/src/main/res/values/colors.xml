@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_bg">#0E1418</color>
+    <!-- 아이콘 타일 모서리에서 뽑은 색. 적응형 아이콘의 배경으로 쓴다. -->
+    <color name="ic_launcher_bg">#041B5E</color>
 </resources>

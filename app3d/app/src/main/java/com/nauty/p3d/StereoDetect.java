@@ -103,7 +103,7 @@ public final class StereoDetect {
             // 2D 라고 답하는 일이 있다 (detectImage 주석의 실측 참고).
             SourceFormat byAspect = SourceFormat.fromAspect(aspW, aspH);
             if (byAspect != null) {
-                Log.i(TAG, "  해상도가 결정적이라 " + byAspect.label);
+                Log.i(TAG, "  해상도가 결정적이라 " + byAspect.tag);
                 return byAspect;
             }
 
@@ -251,7 +251,7 @@ public final class StereoDetect {
             SourceFormat byAspect = SourceFormat.fromAspect(w, h);
             if (byAspect != null) {
                 Log.i(TAG, "사진 스테레오 판별: " + w + "x" + h
-                        + " — 해상도가 결정적이라 " + byAspect.label);
+                        + " — 해상도가 결정적이라 " + byAspect.tag);
                 return byAspect;
             }
 

@@ -10,18 +10,25 @@ import java.util.Locale;
  *   full-SBS 3840x1080 : 한쪽 눈 1920x1080 이 그대로 16:9                    -> 표시비 = (vw/2)/vh
  * TB 도 같은 방식으로 세로에 대해 성립한다.
  *
- * 3DFV Service3D 의 SourceType(0=SBS_HALF, 1=SBS_FULL, 2=TOP_BOTTOM, 3=SBS_FULLX2) 과 대응한다.
  */
 public enum SourceFormat {
-    MONO_2D ("2D (→3D 변환)"),
-    SBS_HALF("좌우 SBS (half)"),
-    SBS_FULL("좌우 SBS (full)"),
-    TB_HALF ("상하 TB (half)"),
-    TB_FULL ("상하 TB (full)");
+    MONO_2D (R.string.fmt_mono,     "2D"),
+    SBS_HALF(R.string.fmt_sbs_half, "SBS half"),
+    SBS_FULL(R.string.fmt_sbs_full, "SBS full"),
+    TB_HALF (R.string.fmt_tb_half,  "TB half"),
+    TB_FULL (R.string.fmt_tb_full,  "TB full");
 
-    public final String label;
+    private final int labelRes;
+    /**
+     * 로그용 이름. 화면용과 나눠 둔다 — 로그는 어느 나라 말로 돌든 같아야
+     * 남이 보낸 로그를 읽을 수 있고, Context 없이도 찍을 수 있어야 한다.
+     */
+    public final String tag;
 
-    SourceFormat(String l) { label = l; }
+    SourceFormat(int labelRes, String tag) { this.labelRes = labelRes; this.tag = tag; }
+
+    /** 화면에 보일 이름. 기기 언어를 따른다. */
+    public String label(android.content.Context ctx) { return ctx.getString(labelRes); }
 
     public boolean isSbs() { return this == SBS_HALF || this == SBS_FULL; }
     public boolean isTb()  { return this == TB_HALF  || this == TB_FULL; }

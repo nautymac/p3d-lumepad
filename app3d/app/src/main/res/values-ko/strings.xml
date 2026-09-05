@@ -1,4 +1,94 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">P3D 미디어</string>
+    <string name="app_name">DepthFlix</string>
+
+    <!-- 목록 -->
+    <string name="mode_photos">사진 보기</string>
+    <string name="mode_videos">영상 보기</string>
+    <string name="open_url">URL/스트리밍 열기</string>
+    <string name="searching">찾는 중…</string>
+    <string name="folder_pinned">%s 고정</string>
+    <string name="folder_unpinned">%s 고정 해제</string>
+    <string name="crumb_photo_folders">사진 폴더  ·  길게 눌러 위로 고정</string>
+    <string name="crumb_video_folders">영상 폴더  ·  길게 눌러 위로 고정</string>
+    <string name="crumb_in_folder">◀ %1$s   (%2$d)</string>
+    <string name="empty_photos">기기에서 사진을 찾지 못했습니다.</string>
+    <string name="empty_videos">기기에서 영상을 찾지 못했습니다.\n위의 “URL/스트리밍 열기” 를 쓰세요.</string>
+    <string name="empty_folder">이 폴더가 비었습니다.</string>
+    <string name="scanned_new">새 파일 %d개를 목록에 넣었습니다</string>
+    <string name="media_query_failed">미디어 조회 실패: %s</string>
+    <string name="dlg_url_title">스트리밍 주소 열기</string>
+    <string name="url_hint">http(s)://… .mp4 / .m3u8 / .mpd / rtsp://…</string>
+    <string name="action_play">재생</string>
+    <string name="action_cancel">취소</string>
+    <string name="internal_storage">내장 저장소</string>
+
+    <!-- 스테레오 배치 -->
+    <string name="fmt_mono">2D (→3D 변환)</string>
+    <string name="fmt_sbs_half">좌우 SBS (half)</string>
+    <string name="fmt_sbs_full">좌우 SBS (full)</string>
+    <string name="fmt_tb_half">상하 TB (half)</string>
+    <string name="fmt_tb_full">상하 TB (full)</string>
+
+    <!-- 재생 화면 -->
+    <string name="no_media">재생할 영상이 지정되지 않았습니다</string>
+    <string name="btn_list">≡ 목록</string>
+    <string name="btn_settings">⚙ 설정</string>
+    <string name="engine_exo">ExoPlayer</string>
+    <string name="engine_vlc">libVLC</string>
+    <string name="photo_label">사진</string>
+    <string name="toast_resume">이어보기 %s</string>
+    <string name="play_error">재생 오류: %s</string>
+    <string name="audio_unsupported">재생할 수 없는 오디오 코덱입니다.\n설정에서 libVLC 로 바꿔보세요.</string>
+    <string name="vlc_fallback">libVLC 시작 실패 → ExoPlayer 로 재생합니다.\n오디오 코덱에 따라 소리가 안 날 수 있습니다.</string>
+    <string name="engine_exo_note">ExoPlayer — 하드웨어 디코딩 + FFmpeg 오디오</string>
+    <string name="engine_vlc_note">libVLC — 이 기기에선 항상 소프트웨어 디코딩 (4K는 끊김)</string>
+
+    <!-- 설정판: 3D -->
+    <string name="hdr_3d">3D</string>
+    <string name="btn_source">소스: %s</string>
+    <string name="btn_output">출력: %s</string>
+    <string name="out_3d">3D 출력</string>
+    <string name="out_2d">2D 출력</string>
+    <string name="out_sbs">SBS 확인</string>
+    <string name="btn_swap_on">좌우반전 ON</string>
+    <string name="btn_swap_off">좌우반전 OFF</string>
+    <string name="btn_redetect">↺ 자동 판별로 되돌리기</string>
+    <string name="btn_aspect">화면 비: %s</string>
+    <string name="aspect_auto">자동</string>
+    <string name="aspect_fill">꽉 채우기</string>
+    <string name="lbl_aspect_off">화면 비 미세조정 (지금은 자동)</string>
+    <string name="lbl_aspect_on">화면 비 미세조정 — %.2f : 1</string>
+    <string name="lbl_depth">깊이 (2D→3D 시차 강도)</string>
+    <string name="btn_engine">엔진: %s</string>
+    <string name="toast_redetect">저장된 선택을 지우고 다시 판별합니다…</string>
+    <string name="toast_detected">3D 자동 인식: %s</string>
+    <string name="status_manual">수동 선택 (저장됨)</string>
+    <string name="status_auto">자동 판별</string>
+    <string name="status_detecting">판별 중…</string>
+    <string name="status_line">%1$s · %2$s · %3$s\n소스: %4$s\n깊이 %5$.2f · 수렴 %6$+.0f px%7$s</string>
+
+    <!-- 설정판: 수렴 -->
+    <string name="lbl_conv_off">수렴 보정 — 소스 그대로</string>
+    <string name="lbl_conv_on">수렴 보정 — %1$+.0f px  (%2$s)</string>
+    <string name="conv_behind">화면 뒤로</string>
+    <string name="conv_front">화면 앞으로</string>
+    <string name="btn_auto_converge">수렴 자동 (장면 중심을 화면에)</string>
+    <string name="toast_measuring">시차를 재는 중…</string>
+    <string name="toast_measure_failed">시차를 재지 못했습니다. 무늬가 뚜렷한 장면에서 다시 눌러보세요.</string>
+    <string name="toast_no_parallax_2d">2D 소스에는 잴 시차가 없습니다.</string>
+    <string name="toast_screen_not_ready">화면이 아직 준비되지 않았습니다.</string>
+    <string name="conv_measured">측정 시차 %1$+d … %2$+d px (중앙 %3$+d, 표본 %4$d)</string>
+    <string name="conv_applied">%s\n장면 중심을 화면에 맞췄습니다.</string>
+
+    <!-- 설정판: 자막 -->
+    <string name="hdr_subtitle">자막</string>
+    <string name="btn_pick_subtitle">자막 선택</string>
+    <string name="sub_none">자막 없음</string>
+    <string name="lbl_sub_size">자막 크기</string>
+    <string name="lbl_sub_pos">자막 위치 (아래에서 올림)</string>
+    <string name="lbl_sub_depth">자막 깊이 (앞으로 튀어나옴)</string>
+    <string name="sub_load_failed">자막을 읽지 못했습니다: %s</string>
+    <string name="sub_loaded">자막 %1$s (%2$d개)</string>
+    <string name="sub_not_found">자막 파일을 찾지 못했습니다.\n영상과 같은 폴더나 Movies/Download 에 .srt/.smi 를 두세요.</string>
 </resources>

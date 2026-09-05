@@ -1,5 +1,96 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 기본(영어). 한국어는 values-ko/strings.xml 에 있다. -->
 <resources>
     <!-- 영상과 사진을 같은 화면에서 본다. 이름도 "플레이어" 에 묶어두지 않는다. -->
-    <string name="app_name">P3D Media</string>
+    <string name="app_name">DepthFlix</string>
+
+    <!-- 목록 -->
+    <string name="mode_photos">Photos</string>
+    <string name="mode_videos">Videos</string>
+    <string name="open_url">Open URL / stream</string>
+    <string name="searching">Searching…</string>
+    <string name="folder_pinned">%s pinned</string>
+    <string name="folder_unpinned">%s unpinned</string>
+    <string name="crumb_photo_folders">Photo folders  ·  long-press to pin</string>
+    <string name="crumb_video_folders">Video folders  ·  long-press to pin</string>
+    <string name="crumb_in_folder">◀ %1$s   (%2$d)</string>
+    <string name="empty_photos">No photos found on this device.</string>
+    <string name="empty_videos">No videos found on this device.\nUse “Open URL / stream” above.</string>
+    <string name="empty_folder">This folder is empty.</string>
+    <string name="scanned_new">Added %d new file(s) to the list</string>
+    <string name="media_query_failed">Media query failed: %s</string>
+    <string name="dlg_url_title">Open a stream URL</string>
+    <string name="url_hint">http(s)://… .mp4 / .m3u8 / .mpd / rtsp://…</string>
+    <string name="action_play">Play</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="internal_storage">Internal storage</string>
+
+    <!-- 스테레오 배치 -->
+    <string name="fmt_mono">2D (→3D conversion)</string>
+    <string name="fmt_sbs_half">Side-by-side (half)</string>
+    <string name="fmt_sbs_full">Side-by-side (full)</string>
+    <string name="fmt_tb_half">Over-under (half)</string>
+    <string name="fmt_tb_full">Over-under (full)</string>
+
+    <!-- 재생 화면 -->
+    <string name="no_media">No video was specified</string>
+    <string name="btn_list">≡ List</string>
+    <string name="btn_settings">⚙ Settings</string>
+    <string name="engine_exo">ExoPlayer</string>
+    <string name="engine_vlc">libVLC</string>
+    <string name="photo_label">Photo</string>
+    <string name="toast_resume">Resuming at %s</string>
+    <string name="play_error">Playback error: %s</string>
+    <string name="audio_unsupported">This audio codec cannot be played.\nTry switching to libVLC in Settings.</string>
+    <string name="vlc_fallback">libVLC failed to start → falling back to ExoPlayer.\nSome audio codecs may be silent.</string>
+    <string name="engine_exo_note">ExoPlayer — hardware decoding + FFmpeg audio</string>
+    <string name="engine_vlc_note">libVLC — always software decoding on this device (4K stutters)</string>
+
+    <!-- 설정판: 3D -->
+    <string name="hdr_3d">3D</string>
+    <string name="btn_source">Source: %s</string>
+    <string name="btn_output">Output: %s</string>
+    <string name="out_3d">3D</string>
+    <string name="out_2d">2D</string>
+    <string name="out_sbs">SBS check</string>
+    <string name="btn_swap_on">Swap L/R: ON</string>
+    <string name="btn_swap_off">Swap L/R: OFF</string>
+    <string name="btn_redetect">↺ Back to automatic detection</string>
+    <string name="btn_aspect">Aspect: %s</string>
+    <string name="aspect_auto">Auto</string>
+    <string name="aspect_fill">Fill screen</string>
+    <string name="lbl_aspect_off">Aspect fine-tune (currently automatic)</string>
+    <string name="lbl_aspect_on">Aspect fine-tune — %.2f : 1</string>
+    <string name="lbl_depth">Depth (2D→3D parallax)</string>
+    <string name="btn_engine">Engine: %s</string>
+    <string name="toast_redetect">Cleared the saved choice; detecting again…</string>
+    <string name="toast_detected">3D detected: %s</string>
+    <string name="status_manual">chosen by hand (saved)</string>
+    <string name="status_auto">detected</string>
+    <string name="status_detecting">detecting…</string>
+    <string name="status_line">%1$s · %2$s · %3$s\nSource: %4$s\nDepth %5$.2f · Convergence %6$+.0f px%7$s</string>
+
+    <!-- 설정판: 수렴 -->
+    <string name="lbl_conv_off">Convergence — source as is</string>
+    <string name="lbl_conv_on">Convergence — %1$+.0f px  (%2$s)</string>
+    <string name="conv_behind">behind the screen</string>
+    <string name="conv_front">in front of the screen</string>
+    <string name="btn_auto_converge">Auto convergence (centre the scene on screen)</string>
+    <string name="toast_measuring">Measuring parallax…</string>
+    <string name="toast_measure_failed">Could not measure the parallax. Try again on a scene with clearer texture.</string>
+    <string name="toast_no_parallax_2d">A 2D source has no parallax to measure.</string>
+    <string name="toast_screen_not_ready">The screen is not ready yet.</string>
+    <string name="conv_measured">Measured %1$+d … %2$+d px (median %3$+d, %4$d samples)</string>
+    <string name="conv_applied">%s\nCentred the scene on the screen plane.</string>
+
+    <!-- 설정판: 자막 -->
+    <string name="hdr_subtitle">Subtitles</string>
+    <string name="btn_pick_subtitle">Choose subtitle</string>
+    <string name="sub_none">No subtitle</string>
+    <string name="lbl_sub_size">Subtitle size</string>
+    <string name="lbl_sub_pos">Subtitle position (up from the bottom)</string>
+    <string name="lbl_sub_depth">Subtitle depth (toward the viewer)</string>
+    <string name="sub_load_failed">Could not read the subtitle: %s</string>
+    <string name="sub_loaded">Subtitle %1$s (%2$d cues)</string>
+    <string name="sub_not_found">No subtitle files found.\nPut a .srt/.smi next to the video, or in Movies/Download.</string>
 </resources>

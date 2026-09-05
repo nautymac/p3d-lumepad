@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  적응형 아이콘 (API 26+).
+
+  전경으로 쓰는 그림은 이미 그 자체로 완성된 타일이라 꽉 채운다. 런처가 제 마스크
+  (원·둥근네모·물방울)로 잘라내므로 모서리를 우리가 둥글릴 이유가 없다 — 그러면
+  두 번 둥글려져 테두리가 겹쳐 보인다.
+
+  배경은 타일 모서리에서 뽑은 남색이다. 런처가 아이콘을 흔들거나 확대할 때
+  전경 뒤로 잠깐 드러나는데, 그때 색이 이어져야 자연스럽다.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_bg" />
+    <foreground android:drawable="@mipmap/ic_launcher_fg" />
+</adaptive-icon>

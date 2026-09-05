@@ -25,13 +25,14 @@ public interface VideoEngine {
 
     /** 엔진 종류. 설정 저장과 UI 표시에 쓴다. */
     enum Kind {
-        EXO("ExoPlayer"),
-        VLC("libVLC"),
+        EXO(com.nauty.p3d.R.string.engine_exo),
+        VLC(com.nauty.p3d.R.string.engine_vlc),
         /** 사진 한 장을 정지 프레임으로 흘려보낸다 (PhotoEngine). 재생 엔진 순환에는 넣지 않는다. */
-        PHOTO("사진");
+        PHOTO(com.nauty.p3d.R.string.photo_label);
 
-        public final String label;
-        Kind(String l) { label = l; }
+        /** 화면에 보일 이름. 기기 언어를 따른다 (ExoPlayer/libVLC 는 어느 말이든 같다). */
+        public final int labelRes;
+        Kind(int labelRes) { this.labelRes = labelRes; }
     }
 
     /**
