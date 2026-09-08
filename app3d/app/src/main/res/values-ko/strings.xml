@@ -35,14 +35,10 @@
     <string name="btn_list">≡ 목록</string>
     <string name="btn_settings">⚙ 설정</string>
     <string name="engine_exo">ExoPlayer</string>
-    <string name="engine_vlc">libVLC</string>
     <string name="photo_label">사진</string>
     <string name="toast_resume">이어보기 %s</string>
     <string name="play_error">재생 오류: %s</string>
-    <string name="audio_unsupported">재생할 수 없는 오디오 코덱입니다.\n설정에서 libVLC 로 바꿔보세요.</string>
-    <string name="vlc_fallback">libVLC 시작 실패 → ExoPlayer 로 재생합니다.\n오디오 코덱에 따라 소리가 안 날 수 있습니다.</string>
-    <string name="engine_exo_note">ExoPlayer — 하드웨어 디코딩 + FFmpeg 오디오</string>
-    <string name="engine_vlc_note">libVLC — 이 기기에선 항상 소프트웨어 디코딩 (4K는 끊김)</string>
+    <string name="audio_unsupported">이 기기에서 재생할 수 없는 오디오 코덱입니다.</string>
 
     <!-- 설정판: 3D -->
     <string name="hdr_3d">3D</string>
@@ -60,7 +56,6 @@
     <string name="lbl_aspect_off">화면 비 미세조정 (지금은 자동)</string>
     <string name="lbl_aspect_on">화면 비 미세조정 — %.2f : 1</string>
     <string name="lbl_depth">깊이 (2D→3D 시차 강도)</string>
-    <string name="btn_engine">엔진: %s</string>
     <string name="toast_redetect">저장된 선택을 지우고 다시 판별합니다…</string>
     <string name="toast_detected">3D 자동 인식: %s</string>
     <string name="status_manual">수동 선택 (저장됨)</string>

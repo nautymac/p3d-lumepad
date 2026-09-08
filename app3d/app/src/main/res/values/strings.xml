@@ -37,14 +37,10 @@
     <string name="btn_list">≡ List</string>
     <string name="btn_settings">⚙ Settings</string>
     <string name="engine_exo">ExoPlayer</string>
-    <string name="engine_vlc">libVLC</string>
     <string name="photo_label">Photo</string>
     <string name="toast_resume">Resuming at %s</string>
     <string name="play_error">Playback error: %s</string>
-    <string name="audio_unsupported">This audio codec cannot be played.\nTry switching to libVLC in Settings.</string>
-    <string name="vlc_fallback">libVLC failed to start → falling back to ExoPlayer.\nSome audio codecs may be silent.</string>
-    <string name="engine_exo_note">ExoPlayer — hardware decoding + FFmpeg audio</string>
-    <string name="engine_vlc_note">libVLC — always software decoding on this device (4K stutters)</string>
+    <string name="audio_unsupported">This audio codec cannot be played on this device.</string>
 
     <!-- 설정판: 3D -->
     <string name="hdr_3d">3D</string>
@@ -62,7 +58,6 @@
     <string name="lbl_aspect_off">Aspect fine-tune (currently automatic)</string>
     <string name="lbl_aspect_on">Aspect fine-tune — %.2f : 1</string>
     <string name="lbl_depth">Depth (2D→3D parallax)</string>
-    <string name="btn_engine">Engine: %s</string>
     <string name="toast_redetect">Cleared the saved choice; detecting again…</string>
     <string name="toast_detected">3D detected: %s</string>
     <string name="status_manual">chosen by hand (saved)</string>

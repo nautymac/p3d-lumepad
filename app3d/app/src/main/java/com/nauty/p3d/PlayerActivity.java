@@ -30,7 +30,6 @@ import android.widget.Toast;
 
 import com.nauty.p3d.engine.ExoEngine;
 import com.nauty.p3d.engine.VideoEngine;
-import com.nauty.p3d.engine.VlcEngine;
 import com.nauty.p3d.gl.Stereo3DView;
 import com.nauty.p3d.panel.Panel;
 import com.nauty.p3d.subtitle.SubtitleBitmap;
@@ -45,8 +44,6 @@ public class PlayerActivity extends Activity
         implements Stereo3DView.Callback, VideoEngine.Listener {
 
     public static final String EXTRA_TITLE = "title";
-    /** 재생 엔진 강제 지정 ("EXO" | "VLC"). 이번 재생에만 적용되고 저장되지 않는다. */
-    public static final String EXTRA_ENGINE = "engine";
     /**
      * 이 URI 가 사진이라는 표시.
      *
@@ -66,21 +63,12 @@ public class PlayerActivity extends Activity
     private static final String TAG        = "P3D";
     private static final String PREFS      = "p3d";
     private static final String KEY_FORMAT = "fmt:";
-    private static final String KEY_ENGINE    = "engine";
     private static final String KEY_SUB_SCALE = "sub_scale";
     private static final String KEY_SUB_Y     = "sub_y";
     private static final String KEY_SUB_DEPTH = "sub_depth";
     private static final String KEY_POS       = "pos:";
     private static final String KEY_ASPECT    = "aspect:";
     private static final String KEY_CONV      = "conv:";
-
-    /** 이번 재생에만 적용되는 엔진 지정 (인텐트 엑스트라). 저장하지 않는다. */
-    private VideoEngine.Kind forcedKind = null;
-    /**
-     * 이보다 가로가 크면 소프트웨어 디코딩으로는 실시간을 못 맞춘다.
-     * 이 경우 libVLC 에 디코딩 품질을 깎아서라도 속도를 내라고 알려준다.
-     */
-    private static final int HEAVY_SOURCE_WIDTH = 2560;
 
     /** 끝에서 이 시간 안쪽이면 "다 봤다" 로 보고 이어보기를 하지 않는다. */
     private static final long END_MARGIN_MS  = 30_000;
@@ -132,7 +120,7 @@ public class PlayerActivity extends Activity
 
     // 설정 패널
     private View settingsPanel;
-    private Button btnSource, btnOutput, btnSwap, btnSubtitle, btnAspect, btnEngine;
+    private Button btnSource, btnOutput, btnSwap, btnSubtitle, btnAspect;
     private TextView statusText, subtitleName, aspectLabel, convLabel;
     private SeekBar  aspectSeek, convSeek;
     /** 마지막 시차 측정 결과를 상태창에 남겨둔다. */
@@ -232,15 +220,6 @@ public class PlayerActivity extends Activity
         });
 
         setContentView(root);
-
-        // 디버그용 엔진 지정. 이번 재생에만 적용하고 저장하지는 않는다.
-        // 저장하면 테스트로 한 번 건 값이 그 뒤 모든 재생에 따라붙는다 (실제로 겪었다).
-        String forced = getIntent().getStringExtra(EXTRA_ENGINE);
-        if (forced != null) {
-            try {
-                forcedKind = VideoEngine.Kind.valueOf(forced.toUpperCase(Locale.US));
-            } catch (IllegalArgumentException ignored) { }
-        }
 
         String name = getIntent().getStringExtra(EXTRA_TITLE);
         if (name == null) name = pendingUri.getLastPathSegment();
@@ -703,15 +682,7 @@ public class PlayerActivity extends Activity
             }
         }));
 
-        btnEngine = panelButton(p, getString(R.string.btn_engine, ""), new View.OnClickListener() {
-            @Override public void onClick(View v) { switchEngine(); }
-        });
-
-        // 엔진 선택 버튼은 두지 않는다.
-        // 이 기기에는 DTS/AC3 디코더가 없어서 ExoPlayer 로는 3D 영화 대부분이 무음이다.
-        // libVLC 가 자체 디코더를 들고 있으므로 그쪽만 쓰고, ExoPlayer 는
-        // libVLC 초기화가 실패했을 때의 폴백으로만 남겨둔다 (startPlayback 참고).
-        // 디버깅용으로 인텐트 엑스트라 --es engine EXO|VLC 는 계속 동작한다.
+        // 엔진 선택 버튼은 없다. 영상은 ExoPlayer 하나뿐이다 (VideoEngine 주석 참고).
 
         scroll.addView(p);
         return scroll;
@@ -864,7 +835,7 @@ public class PlayerActivity extends Activity
         long dur = engine.getDuration();
 
         // 이어보기: 길이가 확정된 뒤에야 이동할 수 있다.
-        // libVLC 의 seek 는 내부적으로 setPosition(비율) 이라 길이를 모르면 무시된다.
+        // 엔진에 따라 seek 가 비율 기반이라 길이를 모르면 무시되기도 한다.
         if (pendingResumeMs > 0 && dur > 0) {
             long target = pendingResumeMs;
             pendingResumeMs = 0;
@@ -1146,11 +1117,6 @@ public class PlayerActivity extends Activity
                     aspectLabel(glView.getAspectOverride())));
         }
         String engineName = getString(currentKind().labelRes);
-        if (btnEngine != null) {
-            // 사진에는 고를 엔진이 없다.
-            btnEngine.setVisibility(isPhoto ? View.GONE : View.VISIBLE);
-            btnEngine.setText(getString(R.string.btn_engine, engineName));
-        }
         updateSubtitleName();
 
         // 지금 소스 포맷이 어디서 왔는지 보여준다. 수동으로 잘못 고른 상태를 알아채야 하기 때문.
@@ -1263,7 +1229,6 @@ public class PlayerActivity extends Activity
 
     // -------------------------------------------------------------- 엔진
 
-    /** 기본은 libVLC. ExoPlayer 는 이 기기에서 DTS/AC3 를 못 재생해 쓸모가 없다. */
     /**
      * 소스 가로 해상도. 컨테이너 헤더만 읽으므로 프레임 디코딩보다 훨씬 싸다.
      * 네트워크 URL 에서는 시간이 걸릴 수 있어 로컬 스킴에서만 본다.
@@ -1293,70 +1258,9 @@ public class PlayerActivity extends Activity
         }
     }
 
+    /** 지금 무엇으로 재생 중인가. 영상은 ExoPlayer 하나뿐이고 사진은 PhotoEngine 이다. */
     private VideoEngine.Kind currentKind() {
-        if (forcedKind != null) return forcedKind;
-        if (engine != null) return engine.kind();
-        // 엔진 선택은 파일별로만 저장한다. 전역으로 저장하면 한 파일 때문에 바꾼 선택이
-        // 다른 모든 파일에 따라붙는다.
-        VideoEngine.Kind fallback = defaultKind();
-        String v = getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString(KEY_ENGINE + mediaKey, fallback.name());
-        try {
-            return VideoEngine.Kind.valueOf(v);
-        } catch (IllegalArgumentException e) {
-            return fallback;
-        }
-    }
-
-    /**
-     * 기본 엔진.
-     *
-     * FFmpeg 오디오 확장을 넣은 뒤로 ExoPlayer 가 기본이다. 이 기기에서 libVLC 는
-     * MediaCodec 조회 중 예외를 맞아 (`Exception occurred in
-     * MediaCodecInfo.getCapabilitiesForType`) 하드웨어 디코더를 못 찾고 **항상**
-     * 소프트웨어로 디코딩한다. 1080p 는 그래도 되지만 3840x1080 10bit HEVC 는 21fps 로
-     * 무너진다. ExoPlayer 는 같은 파일을 하드웨어로 27.6fps 에 돌리고, 예전에 무음의
-     * 원인이던 AC3/DTS 는 이제 FFmpeg 확장이 디코딩한다.
-     *
-     * 다만 ExoPlayer 가 못 여는 프로토콜이 있다. 그건 계속 libVLC 로 연다.
-     */
-    private VideoEngine.Kind defaultKind() {
-        String s = pendingUri == null ? null : pendingUri.getScheme();
-        if (s != null) {
-            s = s.toLowerCase(Locale.US);
-            // ExoPlayer 로는 못 여는 것들 (rtsp 모듈 미포함, smb/ftp/mms 미지원)
-            if (s.startsWith("rtsp") || s.startsWith("rtmp") || s.equals("smb")
-                    || s.equals("ftp") || s.equals("mms") || s.equals("udp")) {
-                return VideoEngine.Kind.VLC;
-            }
-        }
-        return VideoEngine.Kind.EXO;
-    }
-
-    /**
-     * 엔진을 바꿔서 같은 지점부터 다시 연다.
-     *
-     * 기본은 ExoPlayer 다 ({@link #defaultKind()} 참고). libVLC 는 ExoPlayer 가 열지 못하는
-     * 컨테이너나 프로토콜을 만났을 때의 수단으로 남겨둔다.
-     */
-    private void switchEngine() {
-        VideoEngine.Kind next = currentKind() == VideoEngine.Kind.VLC
-                ? VideoEngine.Kind.EXO : VideoEngine.Kind.VLC;
-
-        long at = engine == null ? 0 : engine.getPosition();
-        if (engine != null) { engine.release(); engine = null; }
-
-        forcedKind = null;
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString(KEY_ENGINE + mediaKey, next.name()).apply();
-
-        if (at > 0) pendingResumeMs = at;
-
-        Toast.makeText(this, next == VideoEngine.Kind.EXO
-                        ? getString(R.string.engine_exo_note)
-                        : getString(R.string.engine_vlc_note),
-                Toast.LENGTH_LONG).show();
-        refreshLabels();
+        return engine != null ? engine.kind() : VideoEngine.Kind.EXO;
     }
 
     @Override
@@ -1405,39 +1309,24 @@ public class PlayerActivity extends Activity
             return;
         }
 
-        // 큰 소스는 소프트웨어 폴백이 걸리면 재생이 무너진다. 그때는 폴백을 막고
-        // MediaCodec 만 쓰게 한다. 실패하면 onError 에서 한 번 풀고 다시 연다.
+        // 컨테이너 헤더에서 소스 크기를 미리 읽어 둔다.
+        //
+        // 크기 통지가 아예 오지 않는 소스가 있는데, 그러면 크기를 모른 채 기본값
+        // 16:9 로 배치돼 화면이 눌린다. 미리 알아낸 값으로 먼저 맞춰 둔다.
         int[] size = probeVideoSize(pendingUri);
-        int vw = size == null ? 0 : size[0];
-        int vh = size == null ? 0 : size[1];
-        boolean heavy = vw >= HEAVY_SOURCE_WIDTH;
-        if (vw > 0) {
-            Log.i(TAG, "소스 " + vw + "x" + vh + (heavy ? " (무거운 소스)" : ""));
-            // vout 콜백(onNewVideoLayout)이 아예 오지 않는 소스가 있다. 그때는 소스 크기를
-            // 모른 채 기본값 16:9 로 배치돼 화면이 눌린다. 미리 알아낸 값으로 먼저 맞춰둔다.
-            onVideoSize(vw, vh);
+        if (size != null) {
+            Log.i(TAG, "소스 " + size[0] + "x" + size[1]);
+            onVideoSize(size[0], size[1]);
         }
 
-        engine = currentKind() == VideoEngine.Kind.VLC
-                ? new VlcEngine(heavy, vw, vh) : new ExoEngine();
-        int vlcVerbose = getIntent().getIntExtra("vlcverbose", 0);
-        if (vlcVerbose > 0 && engine instanceof VlcEngine) {
-            ((VlcEngine) engine).setVerbose(vlcVerbose);
-        }
+        engine = new ExoEngine();
         try {
             engine.open(this, pendingUri, videoSurface, videoSurfaceTexture, this);
             engine.play();
         } catch (Throwable t) {
-            // libVLC 가 뜨지 않으면 화면이 아예 안 나오므로 ExoPlayer 로 떨어진다.
-            // 다만 이 기기에서 ExoPlayer 는 DTS/AC3 를 못 해 무음일 수 있으니 그 사실을 알린다.
-            // 이 폴백은 저장하지 않는다 — 저장하면 다음부터도 계속 ExoPlayer 가 된다.
-            Toast.makeText(this,
-                    "libVLC 시작 실패 → ExoPlayer 로 재생합니다.\n오디오 코덱에 따라 소리가 안 날 수 있습니다.",
+            Log.e(TAG, "재생 시작 실패", t);
+            Toast.makeText(this, getString(R.string.play_error, String.valueOf(t.getMessage())),
                     Toast.LENGTH_LONG).show();
-            try { engine.release(); } catch (Throwable ignored) { }
-            engine = new ExoEngine();
-            engine.open(this, pendingUri, videoSurface, videoSurfaceTexture, this);
-            engine.play();
         }
         // 이어보기 예약. 실제 이동은 길이가 확정된 뒤 tick() 에서 한다.
         pendingResumeMs = loadResumeMs();
@@ -1521,11 +1410,10 @@ public class PlayerActivity extends Activity
     public void onAudioUnsupported() {
         ui.post(new Runnable() {
             @Override public void run() {
-                // libVLC 로 바꿔도 안 된다. 이 기기는 DTS 를 디코딩은 해도
+                // 다른 엔진으로 바꿔도 안 된다. 이 기기는 DTS 를 디코딩은 해도
                 // 오디오 출력단에서 막혀서 결국 무음이다. 헛된 안내를 하지 않는다.
                 Toast.makeText(PlayerActivity.this,
-                        "재생할 수 없는 오디오 코덱입니다.\n설정에서 libVLC 로 바꿔보세요.",
-                        Toast.LENGTH_LONG).show();
+                        R.string.audio_unsupported, Toast.LENGTH_LONG).show();
             }
         });
     }

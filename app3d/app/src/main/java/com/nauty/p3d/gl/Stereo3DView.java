@@ -31,7 +31,7 @@ public class Stereo3DView extends GLSurfaceView {
     public interface Callback {
         /**
          * 영상 입력면 준비 완료. 재생 엔진을 여기에 물리면 된다.
-         * ExoPlayer 는 Surface 를, libVLC 는 SurfaceTexture 를 받으므로 둘 다 넘긴다.
+         * 엔진에 따라 Surface 를 받기도, SurfaceTexture 를 받기도 해서 둘 다 넘긴다.
          */
         void onSurfaceReady(Surface surface, SurfaceTexture surfaceTexture);
     }

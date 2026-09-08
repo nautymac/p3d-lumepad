@@ -10,8 +10,15 @@ import android.view.Surface;
  *
  * 3D 렌더 파이프라인은 "디코딩된 프레임이 SurfaceTexture 로 들어온다"는 것만 알면 되므로,
  * 그 아래는 갈아끼울 수 있다.
- *   ExoPlayer : 기기 MediaCodec 사용. 가볍고 HLS/DASH 에 강함.
- *   libVLC    : 자체 FFmpeg 내장. MKV / DTS / AC3 등 MediaCodec 이 못 하는 것을 커버.
+ *   ExoPlayer   : 기기 MediaCodec 으로 하드웨어 디코딩. 영상은 전부 이쪽이다.
+ *   PhotoEngine : 사진 한 장을 정지 프레임으로 흘려보낸다.
+ *
+ * 한때 libVLC 도 있었지만 걷어냈다. 이 기기에서 libVLC 는 MediaCodec 조회 중 예외를
+ * 맞아 (Exception occurred in MediaCodecInfo.getCapabilitiesForType) 하드웨어 디코더를
+ * 못 찾고 <b>항상</b> 소프트웨어로 디코딩한다. 3840x1080 10bit HEVC 가 21fps 로
+ * 무너지는데 ExoPlayer 는 같은 파일을 27.6fps 로 돌린다. 무음의 원인이던 AC3/DTS 는
+ * FFmpeg 오디오 확장이 맡으면서 libVLC 를 남겨둘 이유가 없어졌다.
+ * APK 에서 43MB(libvlc.so)가 빠지는 것은 덤이다.
  */
 public interface VideoEngine {
 
@@ -26,18 +33,17 @@ public interface VideoEngine {
     /** 엔진 종류. 설정 저장과 UI 표시에 쓴다. */
     enum Kind {
         EXO(com.nauty.p3d.R.string.engine_exo),
-        VLC(com.nauty.p3d.R.string.engine_vlc),
-        /** 사진 한 장을 정지 프레임으로 흘려보낸다 (PhotoEngine). 재생 엔진 순환에는 넣지 않는다. */
+        /** 사진 한 장을 정지 프레임으로 흘려보낸다 (PhotoEngine). */
         PHOTO(com.nauty.p3d.R.string.photo_label);
 
-        /** 화면에 보일 이름. 기기 언어를 따른다 (ExoPlayer/libVLC 는 어느 말이든 같다). */
+        /** 화면에 보일 이름. 기기 언어를 따른다 (ExoPlayer 는 어느 말이든 같다). */
         public final int labelRes;
         Kind(int labelRes) { this.labelRes = labelRes; }
     }
 
     /**
      * @param surface        ExoPlayer 처럼 Surface 를 받는 엔진용
-     * @param surfaceTexture libVLC 처럼 SurfaceTexture 를 직접 받는 엔진용
+     * @param surfaceTexture SurfaceTexture 를 직접 받는 엔진용
      */
     void open(Context ctx, Uri uri, Surface surface, SurfaceTexture surfaceTexture, Listener l);
 
