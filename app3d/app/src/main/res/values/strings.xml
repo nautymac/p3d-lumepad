@@ -30,18 +30,24 @@
     <string name="net_url">URL</string>
     <string name="net_dlna">DLNA</string>
     <string name="net_smb">SMB</string>
+    <string name="net_manual_entry">Enter address manually…</string>
+    <string name="action_connect">Connect</string>
+    <string name="dlna_searching">Searching for DLNA servers…</string>
+    <string name="dlna_none_found">DLNA — none found</string>
     <string name="dlna_host_hint">IP address[:port]</string>
     <string name="dlna_common_ports">Common ports: Plex 32469 · Serviio 8895 · Jellyfin 8096 · Windows Media Player 2869 · MiniDLNA 8200</string>
     <string name="dlna_connecting">Connecting to DLNA…</string>
     <string name="dlna_failed">DLNA failed: %s</string>
     <string name="dlna_empty">This folder is empty.</string>
-    <string name="smb_host_hint">Host / IP address</string>
-    <string name="smb_port_hint">Port (default 445)</string>
-    <string name="smb_share_hint">Share name</string>
+    <string name="smb_searching">Searching for SMB servers…</string>
+    <string name="smb_none_found">SMB — none found</string>
+    <string name="smb_host_hint">Host / IP address[:port]</string>
     <string name="smb_user_hint">Username (blank = anonymous)</string>
     <string name="smb_pass_hint">Password</string>
     <string name="smb_connecting">Connecting to SMB…</string>
     <string name="smb_failed">SMB failed: %s</string>
+    <string name="smb_no_shares">No shares accessible with this account.</string>
+    <string name="smb_pick_share">Choose a share</string>
     <string name="smb_empty">This folder is empty.</string>
 
     <!-- 스테레오 배치 -->

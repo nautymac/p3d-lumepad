@@ -19,9 +19,13 @@ import java.util.List;
  * DLNA(UPnP AV) 를 최소한으로 — description.xml 을 읽어 ContentDirectory 의
  * controlURL 을 찾고, Browse 액션으로 목록을 받는다.
  *
- * SSDP 멀티캐스트 탐색은 하지 않는다. 사용자가 IP/포트를 직접 넣으므로 필요 없다
- * (HANDOFF 1-② 참고). 재생 URL 은 DIDL 의 &lt;res&gt; 에 그대로 들어 있는 평범한
- * http 주소라 재생 엔진은 손댈 것이 없다 — URL 열기와 같은 길을 탄다.
+ * 기기 찾기는 {@link Ssdp} 가 맡는다. 거기서 받은 description.xml 의 실제 URL을
+ * 그대로 넘기면 되므로, 여기서는 "/description.xml" 경로를 다시 추측하지 않는다 —
+ * 제조사마다 그 경로가 다를 수 있어서 실측(SSDP 의 LOCATION) 쪽이 더 정확하다.
+ * IP 를 직접 넣는 수동 경로는 findControlUrl(host, port) 로 남겨 둔다.
+ *
+ * 재생 URL 은 DIDL 의 &lt;res&gt; 에 그대로 들어 있는 평범한 http 주소라 재생
+ * 엔진은 손댈 것이 없다 — URL 열기와 같은 길을 탄다.
  */
 public final class Dlna {
 
@@ -42,10 +46,43 @@ public final class Dlna {
 
     private Dlna() {}
 
-    /** description.xml 을 읽어 ContentDirectory 서비스의 절대 controlURL 을 찾는다. */
+    /** 수동 입력용. "/description.xml" 이 표준은 아니지만 흔히 쓰인다. */
     public static String findControlUrl(String host, int port) throws IOException {
         String base = "http://" + host + ":" + port;
-        String xml = httpGet(base + "/description.xml");
+        return findControlUrlFromDescription(base + "/description.xml", base);
+    }
+
+    /**
+     * {@link Ssdp} 가 준 description.xml 의 실제 URL로 찾는다 — 경로를 추측할
+     * 필요가 없어 더 정확하다.
+     */
+    public static String findControlUrl(String descriptionUrl) throws IOException {
+        return findControlUrlFromDescription(descriptionUrl, baseOf(descriptionUrl));
+    }
+
+    /** description.xml 에서 &lt;friendlyName&gt; 을 읽는다. 목록에 보일 이름이다. */
+    public static String fetchFriendlyName(String descriptionUrl) throws IOException {
+        String xml = httpGet(descriptionUrl);
+        try {
+            XmlPullParser p = Xml.newPullParser();
+            p.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false);
+            p.setInput(new StringReader(xml));
+            int ev = p.getEventType();
+            while (ev != XmlPullParser.END_DOCUMENT) {
+                if (ev == XmlPullParser.START_TAG && "friendlyName".equals(localName(p.getName()))) {
+                    return safeText(p);
+                }
+                ev = p.next();
+            }
+        } catch (Exception e) {
+            throw new IOException("friendlyName 을 못 읽었습니다", e);
+        }
+        return null;
+    }
+
+    private static String findControlUrlFromDescription(String descriptionUrl, String base)
+            throws IOException {
+        String xml = httpGet(descriptionUrl);
         try {
             XmlPullParser p = Xml.newPullParser();
             p.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false);
@@ -72,6 +109,17 @@ public final class Dlna {
             throw new IOException("description.xml 파싱 실패", e);
         }
         throw new IOException("이 기기에서 ContentDirectory 서비스를 찾지 못했습니다");
+    }
+
+    /** URL 에서 scheme://host:port 만 뽑는다 — 상대 controlURL 을 절대 경로로 바꿀 기준. */
+    private static String baseOf(String url) throws IOException {
+        try {
+            URL u = new URL(url);
+            int port = u.getPort();
+            return u.getProtocol() + "://" + u.getHost() + (port >= 0 ? ":" + port : "");
+        } catch (Exception e) {
+            throw new IOException("잘못된 URL: " + url, e);
+        }
     }
 
     /** objectId 아래 항목을 한 단계만 나열한다 (BrowseDirectChildren). */

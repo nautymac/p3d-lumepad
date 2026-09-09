@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
+    <!-- DLNA(SSDP) 검색용 UDP 멀티캐스트 수신. SMB 는 NsdManager(mDNS) 라 따로 필요 없다. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
 
     <!--
       아래 둘은 평소 재생에 필요하지 않다. 그냥 설치하면 3D 가 나온다.
@@ -46,7 +48,12 @@
         android:label="@string/app_name"
         android:allowBackup="true"
         android:theme="@android:style/Theme.Material.NoActionBar"
-        android:hardwareAccelerated="true">
+        android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="true">
+        <!-- DLNA·SMB 는 LAN 안에서 암호 없는 http/SMB 로 통신한다. targetSdk 28 부터는
+             usesCleartextTraffic 이 기본 false 라, 이게 없으면 Dlna.java 의 모든
+             HttpURLConnection 요청이 CleartextNotPermittedException 으로 조용히
+             실패한다 (Browse 실패 토스트로만 보였다 — 실기에서 이 문제로 한참 헤맸다). -->
 
         <!-- 백라이트 3D 전환 API. 시스템 공유 라이브러리로 정식 선언돼 있다
              (/system/etc/permissions/com.leia.android.lights.xml).

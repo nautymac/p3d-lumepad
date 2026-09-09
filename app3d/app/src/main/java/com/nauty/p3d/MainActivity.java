@@ -26,7 +26,9 @@ import android.widget.Toast;
 import com.nauty.p3d.net.Dlna;
 import com.nauty.p3d.net.SmbBrowser;
 import com.nauty.p3d.net.SmbCredentials;
+import com.nauty.p3d.net.SmbDiscovery;
 import com.nauty.p3d.net.SmbUri;
+import com.nauty.p3d.net.Ssdp;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -346,11 +348,51 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------ DLNA
     //
-    // 사용자가 IP/포트를 직접 넣으므로 SSDP 멀티캐스트 탐색은 건너뛴다. description.xml
-    // 을 읽어 ContentDirectory 의 controlURL 을 찾고, Browse 로 목록을 받아 재생 URL
-    // (평범한 http 주소)을 그대로 연다 — 재생 엔진은 손댈 것이 없다.
+    // SSDP(M-SEARCH) 로 같은 네트워크의 미디어 서버를 먼저 찾아 보여준다 — IP 를
+    // 몰라도 이름만 보고 고르면 된다. 광고하지 않는 서버나 다른 서브넷에 있는
+    // 서버를 위해 "직접 입력" 도 남겨 둔다. description.xml 을 읽어 ContentDirectory
+    // 의 controlURL 을 찾고, Browse 로 목록을 받아 재생 URL(평범한 http 주소)을
+    // 그대로 연다 — 재생 엔진은 손댈 것이 없다.
 
     private void askDlnaHost() {
+        Toast.makeText(this, R.string.dlna_searching, Toast.LENGTH_SHORT).show();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final List<Ssdp.Device> devices = Ssdp.discover(MainActivity.this, 3000);
+                for (Ssdp.Device d : devices) {
+                    try { d.friendlyName = Dlna.fetchFriendlyName(d.location); }
+                    catch (Exception ignored) { }
+                }
+                runOnUiThread(new Runnable() {
+                    @Override public void run() { showDlnaHostPicker(devices); }
+                });
+            }
+        }, "ssdp-discover").start();
+    }
+
+    private void showDlnaHostPicker(final List<Ssdp.Device> devices) {
+        final String[] items = new String[devices.size() + 1];
+        for (int i = 0; i < devices.size(); i++) {
+            Ssdp.Device d = devices.get(i);
+            items[i] = d.friendlyName != null ? d.friendlyName : d.location;
+        }
+        items[devices.size()] = getString(R.string.net_manual_entry);
+
+        new AlertDialog.Builder(this)
+                .setTitle(devices.isEmpty() ? getString(R.string.dlna_none_found)
+                        : getString(R.string.net_dlna))
+                .setItems(items, (d, which) -> {
+                    if (which == devices.size()) {
+                        askDlnaHostManual();
+                    } else {
+                        Ssdp.Device dev = devices.get(which);
+                        startDlnaBrowseFromLocation(dev.location, items[which]);
+                    }
+                })
+                .show();
+    }
+
+    private void askDlnaHostManual() {
         final EditText in = new EditText(this);
         in.setHint(R.string.dlna_host_hint);
         new AlertDialog.Builder(this)
@@ -374,6 +416,23 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private void startDlnaBrowseFromLocation(final String descriptionUrl, final String title) {
+        Toast.makeText(this, R.string.dlna_connecting, Toast.LENGTH_SHORT).show();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    final String controlUrl = Dlna.findControlUrl(descriptionUrl);
+                    dlnaBrowseTo(controlUrl, "0", title);
+                } catch (final Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { dlnaFailed(e); }
+                    });
+                }
+            }
+        }, "dlna-connect").start();
+    }
+
+    /** "직접 입력" 경로. description.xml 이 "/description.xml" 에 있다고 가정한다. */
     private void startDlnaBrowse(final String host, final int port) {
         Toast.makeText(this, R.string.dlna_connecting, Toast.LENGTH_SHORT).show();
         new Thread(new Runnable() {
@@ -435,38 +494,123 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------ SMB
     //
-    // DataSource 는 SmbDataSource(엔진 쪽) 가 맡고, 여기서는 목록만 훑어 재생할 파일을
-    // 고르게 한다. 계정 정보는 즐겨찾기와 같은 방식으로 SharedPreferences 에 남긴다.
+    // mDNS(_smb._tcp.) 로 서버를 먼저 찾는다. Synology·QNAP·macOS 공유는 기본으로
+    // 이걸 광고한다 (평범한 Windows 공유 PC 는 안 할 수 있어 "직접 입력" 도 둔다).
+    // 서버를 고르면 계정만 물어보고, 공유 이름은 로그인한 계정이 접근 가능한
+    // 목록을 SRVSVC 로 직접 받아 고르게 한다 — 사용자가 공유 이름을 몰라도 된다.
+    // 재생 자체(DataSource)는 SmbDataSource(엔진 쪽)가 맡고 여기서는 목록만 본다.
 
     private void askSmbHost() {
+        Toast.makeText(this, R.string.smb_searching, Toast.LENGTH_SHORT).show();
+        SmbDiscovery.discover(this, 3000, new SmbDiscovery.Callback() {
+            @Override public void onFinished(List<SmbDiscovery.Host> hosts) {
+                showSmbHostPicker(hosts);
+            }
+        });
+    }
+
+    private void showSmbHostPicker(final List<SmbDiscovery.Host> hosts) {
+        final String[] items = new String[hosts.size() + 1];
+        for (int i = 0; i < hosts.size(); i++) {
+            SmbDiscovery.Host h = hosts.get(i);
+            items[i] = h.name + "  (" + h.address + ")";
+        }
+        items[hosts.size()] = getString(R.string.net_manual_entry);
+
+        new AlertDialog.Builder(this)
+                .setTitle(hosts.isEmpty() ? getString(R.string.smb_none_found)
+                        : getString(R.string.net_smb))
+                .setItems(items, (d, which) -> {
+                    if (which == hosts.size()) {
+                        askSmbHostManual();
+                    } else {
+                        SmbDiscovery.Host h = hosts.get(which);
+                        askSmbCredentials(h.address, h.port > 0 ? h.port : 445);
+                    }
+                })
+                .show();
+    }
+
+    private void askSmbHostManual() {
+        final EditText in = new EditText(this);
+        in.setHint(R.string.smb_host_hint);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.net_smb)
+                .setView(in)
+                .setPositiveButton(R.string.action_next, (d, w) -> {
+                    String hp = in.getText().toString().trim();
+                    if (hp.isEmpty()) return;
+                    String host = hp;
+                    int port = 445;
+                    int c = hp.lastIndexOf(':');
+                    if (c > 0) {
+                        host = hp.substring(0, c);
+                        try { port = Integer.parseInt(hp.substring(c + 1)); }
+                        catch (NumberFormatException ignored) { }
+                    }
+                    askSmbCredentials(host, port);
+                })
+                .setNegativeButton(R.string.action_cancel, null)
+                .show();
+    }
+
+    private void askSmbCredentials(final String host, final int port) {
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(20);
         form.setPadding(pad, dp(8), pad, dp(8));
 
-        final EditText host = addField(form, R.string.smb_host_hint, false);
-        final EditText port = addField(form, R.string.smb_port_hint, false);
-        port.setText("445");
-        final EditText share = addField(form, R.string.smb_share_hint, false);
         final EditText user = addField(form, R.string.smb_user_hint, false);
         final EditText pass = addField(form, R.string.smb_pass_hint, true);
 
         new AlertDialog.Builder(this)
-                .setTitle(R.string.net_smb)
+                .setTitle(host)
                 .setView(form)
-                .setPositiveButton(R.string.action_next, (d, w) -> {
-                    String h = host.getText().toString().trim();
-                    if (h.isEmpty()) return;
-                    int p;
-                    try { p = Integer.parseInt(port.getText().toString().trim()); }
-                    catch (NumberFormatException e) { p = 445; }
-                    String sh = share.getText().toString().trim();
+                .setPositiveButton(R.string.action_connect, (d, w) -> {
                     String u = user.getText().toString().trim();
                     String pw = pass.getText().toString();
-                    if (!u.isEmpty()) SmbCredentials.save(this, h, sh, u, pw, null);
-                    startSmbBrowse(h, p, sh, u, pw, "");
+                    startSmbShareList(host, port, u, pw);
                 })
                 .setNegativeButton(R.string.action_cancel, null)
+                .show();
+    }
+
+    private void startSmbShareList(final String host, final int port,
+                                    final String user, final String pass) {
+        Toast.makeText(this, R.string.smb_connecting, Toast.LENGTH_SHORT).show();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    final List<String> shares = SmbBrowser.listShares(host, port, user, pass);
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { showSmbShareList(host, port, user, pass, shares); }
+                    });
+                } catch (final Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            Toast.makeText(MainActivity.this,
+                                    getString(R.string.smb_failed, String.valueOf(e.getMessage())),
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }, "smb-shares").start();
+    }
+
+    private void showSmbShareList(final String host, final int port,
+                                   final String user, final String pass, final List<String> shares) {
+        if (shares.isEmpty()) {
+            Toast.makeText(this, R.string.smb_no_shares, Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.smb_pick_share)
+                .setItems(shares.toArray(new String[0]), (d, which) -> {
+                    String share = shares.get(which);
+                    if (!user.isEmpty()) SmbCredentials.save(this, host, share, user, pass, null);
+                    startSmbBrowse(host, port, share, user, pass, "");
+                })
                 .show();
     }
 

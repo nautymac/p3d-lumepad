@@ -8,8 +8,14 @@ import com.hierynomus.smbj.connection.Connection;
 import com.hierynomus.smbj.session.Session;
 import com.hierynomus.smbj.share.DiskShare;
 
+import com.rapid7.client.dcerpc.mssrvs.ServerService;
+import com.rapid7.client.dcerpc.mssrvs.dto.NetShareInfo1;
+import com.rapid7.client.dcerpc.transport.RPCTransport;
+import com.rapid7.client.dcerpc.transport.SMBTransportFactories;
+
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -26,6 +32,38 @@ public final class SmbBrowser {
 
     private SmbBrowser() {}
 
+    /**
+     * 이 계정으로 접근 가능한 공유 이름을 받아온다. 사용자가 공유 이름을 몰라도
+     * 되게 하는 것이 목적이다 (IPC$ 위의 SRVSVC NetrShareEnum, smbj 에는 없어
+     * com.rapid7.client:dcerpc 를 따로 붙였다).
+     *
+     * 인쇄 공유·IPC$·admin$ 같은 특수 공유는 뺀다 — type==0 이 일반 디스크 공유다.
+     */
+    public static List<String> listShares(String host, int port, String user, String pass)
+            throws IOException {
+        SMBClient client = null;
+        try {
+            client = new SMBClient();
+            Connection connection = client.connect(host, port);
+            Session session = connection.authenticate(authOf(user, pass));
+
+            RPCTransport transport = SMBTransportFactories.SRVSVC.getTransport(session);
+            ServerService svc = new ServerService(transport);
+            List<String> out = new ArrayList<>();
+            for (NetShareInfo1 s : svc.getShares1()) {
+                if (s.getType() == 0) out.add(s.getNetName());   // 0 = 일반 디스크 공유
+            }
+            Collections.sort(out, String.CASE_INSENSITIVE_ORDER);
+            return out;
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("공유 목록을 못 받았습니다: " + host, e);
+        } finally {
+            if (client != null) client.close();
+        }
+    }
+
     /** path 는 smbj 식 "\\" 구분자. 빈 문자열이면 공유 루트. */
     public static List<Entry> list(String host, int port, String share,
                                     String user, String pass, String path) throws IOException {
@@ -33,10 +71,7 @@ public final class SmbBrowser {
         try {
             client = new SMBClient();
             Connection connection = client.connect(host, port);
-            AuthenticationContext auth = (user == null || user.isEmpty())
-                    ? AuthenticationContext.anonymous()
-                    : new AuthenticationContext(user, pass == null ? new char[0] : pass.toCharArray(), null);
-            Session session = connection.authenticate(auth);
+            Session session = connection.authenticate(authOf(user, pass));
             DiskShare disk = (DiskShare) session.connectShare(share);
             try {
                 List<Entry> out = new ArrayList<>();
@@ -58,5 +93,11 @@ public final class SmbBrowser {
         } finally {
             if (client != null) client.close();
         }
+    }
+
+    private static AuthenticationContext authOf(String user, String pass) {
+        return (user == null || user.isEmpty())
+                ? AuthenticationContext.anonymous()
+                : new AuthenticationContext(user, pass == null ? new char[0] : pass.toCharArray(), null);
     }
 }
