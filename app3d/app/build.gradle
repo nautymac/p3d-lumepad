@@ -14,8 +14,8 @@ android {
         applicationId "com.nauty.p3d"
         minSdk 21
         targetSdk 28          // 기기가 API 26 — 레거시 저장소 접근 유지
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
         ndk { abiFilters 'arm64-v8a' }   // 기기가 arm64. libVLC 가 ABI 당 ~30MB 라 하나만 담는다
     }
 
