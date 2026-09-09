@@ -120,8 +120,8 @@ public class ExoEngine implements VideoEngine {
                         }
                     }
                 }
-                audioTracks = audio;
-                textTracks  = text;
+                audioTracks = disambiguate(audio);
+                textTracks  = disambiguate(text);
 
                 Log.i(TAG, "ExoPlayer 오디오 트랙:" + (sb.length() == 0 ? " 없음" : sb));
                 if (!audioPlayable && sb.length() > 0 && listener != null) {
@@ -233,5 +233,28 @@ public class ExoEngine implements VideoEngine {
         int dash = tail.lastIndexOf('-');
         if (dash >= 0) tail = tail.substring(dash + 1);
         return tail.toUpperCase(Locale.US);
+    }
+
+    /**
+     * 이름·언어·코덱·채널수가 전부 같은 트랙이 여러 개면 (제목 없는 MTV 코멘터리 트랙,
+     * 같은 언어의 중복 인코딩 등) trackLabel() 이 똑같은 문자열을 만든다. 실제로는
+     * 서로 다른 트랙인데 목록에서 구분이 안 되던 문제 — 겹치는 라벨에만 번호를 매긴다.
+     */
+    private static List<TrackInfo> disambiguate(List<TrackInfo> tracks) {
+        java.util.Map<String, Integer> total = new java.util.HashMap<>();
+        for (TrackInfo t : tracks) total.merge(t.label, 1, Integer::sum);
+
+        java.util.Map<String, Integer> seen = new java.util.HashMap<>();
+        List<TrackInfo> out = new ArrayList<>(tracks.size());
+        for (TrackInfo t : tracks) {
+            if (total.get(t.label) > 1) {
+                int n = seen.merge(t.label, 1, Integer::sum);
+                out.add(new TrackInfo(t.group, t.indexInGroup, t.label + "  #" + n,
+                        t.supported, t.imageBased));
+            } else {
+                out.add(t);
+            }
+        }
+        return out;
     }
 }
