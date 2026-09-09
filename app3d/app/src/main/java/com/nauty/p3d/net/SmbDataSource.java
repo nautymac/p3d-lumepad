@@ -55,7 +55,7 @@ public final class SmbDataSource extends BaseDataSource {
         SmbUri parsed = SmbUri.parse(spec.uri);
         SmbCredentials.Entry cred = parsed.hasCredentials()
                 ? new SmbCredentials.Entry(parsed.user, parsed.pass, null)
-                : (ctx == null ? null : SmbCredentials.find(ctx, parsed.host, parsed.share));
+                : (ctx == null ? null : SmbCredentials.find(ctx, parsed.host));
 
         long fileLength;
         try {
