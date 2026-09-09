@@ -18,7 +18,7 @@
     <string name="scanned_new">새 파일 %d개를 목록에 넣었습니다</string>
     <string name="media_query_failed">미디어 조회 실패: %s</string>
     <string name="dlg_url_title">스트리밍 주소 열기</string>
-    <string name="url_hint">http(s)://… .mp4 / .m3u8 / .mpd / rtsp://… / 유튜브 링크</string>
+    <string name="url_hint">https://youtube.com/watch?v=…</string>
     <string name="yt_resolving">유튜브 링크 확인 중…</string>
     <string name="yt_failed">유튜브 링크 실패: %s</string>
     <string name="yt_pick_quality">화질 선택</string>

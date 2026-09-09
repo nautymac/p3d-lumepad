@@ -135,6 +135,33 @@ public class MainActivity extends Activity {
         } else {
             reload();
         }
+
+        handleShareIntent(getIntent());
+    }
+
+    /**
+     * 유튜브에서 "공유" -> 이 앱을 고르면 온다(매니페스트의 SEND 인텐트 필터 참고).
+     * singleTask 라서 이미 떠 있을 때는 onNewIntent() 로 온다.
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleShareIntent(intent);
+    }
+
+    private void handleShareIntent(Intent intent) {
+        if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction())) return;
+        String text = intent.getStringExtra(Intent.EXTRA_TEXT);
+        if (text == null) return;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("https?://\\S+").matcher(text);
+        if (!m.find()) return;
+        String url = m.group();
+        if (YouTube.isYoutubeUrl(url)) {
+            boolean wantSubtitle = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getBoolean(KEY_YT_WANT_SUBTITLE, true);
+            openYoutube(url, wantSubtitle);
+        }
     }
 
     private int dp(int v) {
@@ -343,6 +370,10 @@ public class MainActivity extends Activity {
     private void askUrl() {
         final EditText in = new EditText(this);
         in.setHint(R.string.url_hint);
+        // URI 입력용 힌트를 줘야 한다. 안 주면 기기의 현재 입력 언어(한글 등)를
+        // 그대로 띄워서, 주소를 치는데 한글 자모가 찍히는 일이 실제로 있었다.
+        in.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
 
         final CheckBox subtitleCheck = new CheckBox(this);
         subtitleCheck.setText(R.string.yt_load_subtitle);

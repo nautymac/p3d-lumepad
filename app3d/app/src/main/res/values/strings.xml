@@ -20,7 +20,7 @@
     <string name="scanned_new">Added %d new file(s) to the list</string>
     <string name="media_query_failed">Media query failed: %s</string>
     <string name="dlg_url_title">Open a stream URL</string>
-    <string name="url_hint">http(s)://… .mp4 / .m3u8 / .mpd / rtsp://… / a YouTube link</string>
+    <string name="url_hint">https://youtube.com/watch?v=…</string>
     <string name="yt_resolving">Resolving YouTube link…</string>
     <string name="yt_failed">YouTube link failed: %s</string>
     <string name="yt_pick_quality">Choose quality</string>

@@ -57,9 +57,22 @@ public final class YouTube {
         return u.contains("youtube.com/") || u.contains("youtu.be/");
     }
 
+    /**
+     * 라이브러리에 들어 있는 yt-dlp 는 이 라이브러리가 배포될 때 버전에 그대로
+     * 고정돼 있다. 유튜브는 스크래핑 방어를 자주 바꿔서, 몇 달만 지나도 번들
+     * 버전은 요청은 되지만 403 으로 거부되는 스트림 주소를 뽑아 온다(실기에서
+     * 겪었다 — 요청 헤더까지 그대로 실어 보내도 막혔다. 방어가 헤더가 아니라
+     * yt-dlp 버전이 아는 서명 방식 자체를 보는 것으로 보인다).
+     * init() 직후 최신판으로 자체 업데이트를 한 번 시도한다 — 실패해도(오프라인 등)
+     * 번들 버전으로 계속 시도할 수 있게 무시한다.
+     */
     private static synchronized void ensureInit(Context ctx) throws Exception {
         if (initialized) return;
         YoutubeDL.getInstance().init(ctx.getApplicationContext());
+        try {
+            YoutubeDL.getInstance().updateYoutubeDL(ctx.getApplicationContext(),
+                    YoutubeDL.UpdateChannel._STABLE);
+        } catch (Exception ignored) { }
         initialized = true;
     }
 
@@ -149,7 +162,15 @@ public final class YouTube {
                 boolean hasAudio = !isNone(text(f, "acodec"));
                 int height = f.path("height").asInt(0);
 
-                if (hasVideo && hasAudio && height > 0) {
+                // HLS/DASH 매니페스트(m3u8 등)는 그 안에 이미 필요한 트랙이 다 있다 —
+                // acodec 표기가 부정확해 "영상 전용"으로 잘못 걸리면, 관계없는 오디오
+                // 전용 파일과 억지로 합쳐져 재생이 깨진다(실기에서 DVR 방송 다시보기로
+                // 겪었다). 매니페스트면 acodec 표기와 무관하게 무조건 완결된 트랙으로 본다.
+                boolean isManifest = text(f, "manifest_url") != null
+                        || "m3u8_native".equals(text(f, "protocol"))
+                        || "m3u8".equals(text(f, "protocol"));
+
+                if ((hasVideo && hasAudio || isManifest && hasVideo) && height > 0) {
                     keepBest(combinedByHeight, height, f);
                 } else if (hasVideo && height > 0) {
                     keepBest(videoOnlyByHeight, height, f);
@@ -169,7 +190,7 @@ public final class YouTube {
             JsonNode f = e.getValue();
             Quality q = new Quality(e.getKey() + "p", text(f, "url"), null);
             defaultByHeight.put(e.getKey(), q);
-            registerHeaders(text(f, "url"), headersOf(f));
+            registerHeaders(text(f, "url"), headersOf(f, root));
         }
 
         if (!audioByLang.isEmpty()) {
@@ -178,7 +199,7 @@ public final class YouTube {
             for (Map.Entry<String, JsonNode> langEntry : audioByLang.entrySet()) {
                 JsonNode audio = langEntry.getValue();
                 String audioUrl = text(audio, "url");
-                registerHeaders(audioUrl, headersOf(audio));
+                registerHeaders(audioUrl, headersOf(audio, root));
                 String langName = multiLang ? languageName(langEntry.getKey()) : null;
 
                 for (Map.Entry<Integer, JsonNode> e : videoOnlyByHeight.entrySet()) {
@@ -186,7 +207,7 @@ public final class YouTube {
                     if (first && defaultByHeight.containsKey(height)) continue; // 이미 합쳐진 트랙이 있다
                     JsonNode f = e.getValue();
                     String videoUrl = text(f, "url");
-                    registerHeaders(videoUrl, headersOf(f));
+                    registerHeaders(videoUrl, headersOf(f, root));
                     String label = langName == null ? height + "p" : height + "p · " + langName;
                     Quality q = new Quality(label, videoUrl, audioUrl);
                     if (first) defaultByHeight.put(height, q);
@@ -236,8 +257,15 @@ public final class YouTube {
         }
     }
 
-    private static Map<String, String> headersOf(JsonNode f) {
+    /**
+     * 포맷마다 http_headers 가 따로 있는 일은 드물다 — 보통 정보 최상위(root)에
+     * 이 영상 전체에 쓸 헤더가 한 번만 들어 있다. 이걸 안 실어 보내면 구글비디오
+     * CDN 이 403 으로 막는다(실기에서 겪었다 — yt-dlp 가 확인해 준 요청과 다르다고
+     * 보는 것 같다). 포맷 쪽에 있으면 그걸 우선하고, 없으면 root 걸 쓴다.
+     */
+    private static Map<String, String> headersOf(JsonNode f, JsonNode root) {
         JsonNode h = f.get("http_headers");
+        if (h == null || !h.isObject()) h = root.get("http_headers");
         if (h == null || !h.isObject()) return null;
         Map<String, String> out = new java.util.HashMap<>();
         Iterator<Map.Entry<String, JsonNode>> it = h.fields();
