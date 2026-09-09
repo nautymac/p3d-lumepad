@@ -21,7 +21,26 @@
     <string name="url_hint">http(s)://… .mp4 / .m3u8 / .mpd / rtsp://…</string>
     <string name="action_play">재생</string>
     <string name="action_cancel">취소</string>
+    <string name="action_next">다음</string>
     <string name="internal_storage">내장 저장소</string>
+
+    <!-- 네트워크: DLNA / SMB -->
+    <string name="net_url">URL</string>
+    <string name="net_dlna">DLNA</string>
+    <string name="net_smb">SMB</string>
+    <string name="dlna_host_hint">IP 주소[:포트]</string>
+    <string name="dlna_common_ports">흔한 포트: Plex 32469 · Serviio 8895 · Jellyfin 8096 · Windows Media Player 2869 · MiniDLNA 8200</string>
+    <string name="dlna_connecting">DLNA 에 연결하는 중…</string>
+    <string name="dlna_failed">DLNA 실패: %s</string>
+    <string name="dlna_empty">이 폴더가 비었습니다.</string>
+    <string name="smb_host_hint">호스트 / IP 주소</string>
+    <string name="smb_port_hint">포트 (기본 445)</string>
+    <string name="smb_share_hint">공유 이름</string>
+    <string name="smb_user_hint">사용자 이름 (비우면 익명)</string>
+    <string name="smb_pass_hint">비밀번호</string>
+    <string name="smb_connecting">SMB 에 연결하는 중…</string>
+    <string name="smb_failed">SMB 실패: %s</string>
+    <string name="smb_empty">이 폴더가 비었습니다.</string>
 
     <!-- 스테레오 배치 -->
     <string name="fmt_mono">2D (→3D 변환)</string>
@@ -86,4 +105,13 @@
     <string name="sub_load_failed">자막을 읽지 못했습니다: %s</string>
     <string name="sub_loaded">자막 %1$s (%2$d개)</string>
     <string name="sub_not_found">자막 파일을 찾지 못했습니다.\n영상과 같은 폴더나 Movies/Download 에 .srt/.smi 를 두세요.</string>
+    <string name="sub_embedded_prefix">[내장] %s</string>
+    <string name="sub_image_suffix"> (이미지, 미지원)</string>
+    <string name="sub_image_unsupported">이미지 자막(PGS/VOBSUB)은 아직 지원하지 않습니다.</string>
+
+    <!-- 설정판: 오디오 트랙 -->
+    <string name="btn_pick_audio">오디오 트랙</string>
+    <string name="audio_track_default">기본값</string>
+    <string name="audio_track_none">오디오 트랙이 없습니다</string>
+    <string name="audio_track_selected">오디오 트랙: %s</string>
 </resources>

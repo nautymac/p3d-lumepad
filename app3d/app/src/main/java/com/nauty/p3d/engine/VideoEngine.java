@@ -5,6 +5,8 @@ import android.graphics.SurfaceTexture;
 import android.net.Uri;
 import android.view.Surface;
 
+import java.util.List;
+
 /**
  * 재생 엔진 추상화.
  *
@@ -28,6 +30,11 @@ public interface VideoEngine {
         void onError(String message);
         /** 오디오 트랙은 있는데 이 기기에 디코더가 없어 무음이 되는 경우. */
         void onAudioUnsupported();
+        /**
+         * 선택된 내장 자막 트랙의 지금 자막. null 이면 지울 자막이 없다는 뜻이다.
+         * 텍스트 자막만 온다 — 이미지 자막(PGS/VOBSUB)은 선택 자체를 막아 여기로 오지 않는다.
+         */
+        void onEmbeddedCue(String text);
     }
 
     /** 엔진 종류. 설정 저장과 UI 표시에 쓴다. */
@@ -58,4 +65,25 @@ public interface VideoEngine {
     void release();
 
     Kind kind();
+
+    // --------------------------------------------------------- 트랙 선택
+    //
+    // mkv/mp4 컨테이너 안에 여러 오디오·자막 트랙이 들어 있을 수 있다. 사진에는
+    // 트랙이라는 것이 없으니 PhotoEngine 은 전부 빈 목록/빈 구현으로 둔다.
+
+    /** 컨테이너 안의 오디오 트랙. 아직 안 열렸거나 없으면 빈 목록. */
+    List<TrackInfo> audioTracks();
+
+    /** 컨테이너 안의 자막 트랙. 아직 안 열렸거나 없으면 빈 목록. */
+    List<TrackInfo> textTracks();
+
+    /** null 이면 기기가 고르는 기본값으로 되돌린다. */
+    void selectAudioTrack(TrackInfo track);
+
+    /**
+     * null 이면 내장 자막을 끈다.
+     * 외부 .srt/.smi 를 쓸 때도 반드시 null 로 꺼야 한다 — 안 그러면 내장 자막이
+     * {@link Listener#onEmbeddedCue} 로 계속 들어와 외부 자막과 겹쳐 보인다.
+     */
+    void selectTextTrack(TrackInfo track);
 }

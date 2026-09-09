@@ -29,6 +29,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.nauty.p3d.engine.ExoEngine;
+import com.nauty.p3d.engine.TrackInfo;
 import com.nauty.p3d.engine.VideoEngine;
 import com.nauty.p3d.gl.Stereo3DView;
 import com.nauty.p3d.panel.Panel;
@@ -37,6 +38,7 @@ import com.nauty.p3d.subtitle.Subtitles;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -120,7 +122,7 @@ public class PlayerActivity extends Activity
 
     // 설정 패널
     private View settingsPanel;
-    private Button btnSource, btnOutput, btnSwap, btnSubtitle, btnAspect;
+    private Button btnSource, btnOutput, btnSwap, btnSubtitle, btnAspect, btnAudioTrack;
     private TextView statusText, subtitleName, aspectLabel, convLabel;
     private SeekBar  aspectSeek, convSeek;
     /** 마지막 시차 측정 결과를 상태창에 남겨둔다. */
@@ -130,6 +132,10 @@ public class PlayerActivity extends Activity
     private Subtitles.Track subtitleTrack;
     private String lastCueText = null;
     private float subtitleScale = 1.0f;
+    /** 내장 자막 트랙을 골랐을 때만 채워진다. 있으면 tick() 의 외부 자막 경로를 건너뛴다. */
+    private TrackInfo selectedEmbeddedText;
+    /** 지금 고른 오디오 트랙. null 이면 기기 기본값. 표시용으로만 들고 있는다. */
+    private TrackInfo selectedAudioTrack;
     /** 첫 자막의 실제 크기를 한 번만 남긴다. 크기 문제를 다시 만나면 이 줄로 판단한다. */
     private boolean subtitleLogged = false;
 
@@ -365,6 +371,8 @@ public class PlayerActivity extends Activity
         manualChoice = false;
         detected     = false;
         convMeasured = null;
+        selectedEmbeddedText = null;   // 사진에는 트랙이 없다 — 표시만 정리
+        selectedAudioTrack   = null;
         applySavedGeometryPrefs();
         videoFile = resolveMediaFile(pendingUri);
 
@@ -650,9 +658,34 @@ public class PlayerActivity extends Activity
         subtitleName.setTextSize(11f);
         p.addView(subtitleName);
 
-        btnSubtitle = panelButton(p, getString(R.string.btn_pick_subtitle), new View.OnClickListener() {
+        // 자막 선택과 오디오 트랙을 한 줄에 나란히 — 컨테이너 안의 두 트랙 종류를
+        // 같은 자리에서 다루는 것이 자연스럽다 (HANDOFF 1-① 참고).
+        LinearLayout subRow = new LinearLayout(this);
+        subRow.setOrientation(LinearLayout.HORIZONTAL);
+
+        btnSubtitle = new Button(this);
+        btnSubtitle.setText(R.string.btn_pick_subtitle);
+        btnSubtitle.setAllCaps(false);
+        btnSubtitle.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { pickSubtitle(); }
         });
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        subRow.addView(btnSubtitle, subLp);
+
+        btnAudioTrack = new Button(this);
+        btnAudioTrack.setText(R.string.btn_pick_audio);
+        btnAudioTrack.setAllCaps(false);
+        btnAudioTrack.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { pickAudioTrack(); }
+        });
+        LinearLayout.LayoutParams audioLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        audioLp.leftMargin = dp(8);
+        subRow.addView(btnAudioTrack, audioLp);
+
+        p.addView(subRow, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // 자막 관련 값은 저장해 둔다. 매번 다시 맞추게 하면 안 된다.
         final android.content.SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
@@ -777,11 +810,16 @@ public class PlayerActivity extends Activity
 
     private void updateSubtitleName() {
         if (subtitleName == null) return;
-        subtitleName.setText(subtitleTrack == null
-                ? getString(R.string.sub_none) : subtitleTrack.name);
+        String txt = selectedEmbeddedText != null ? selectedEmbeddedText.label
+                : subtitleTrack == null ? getString(R.string.sub_none) : subtitleTrack.name;
+        subtitleName.setText(txt);
     }
 
-    /** 영상 폴더 + 흔한 폴더에서 자막 파일을 모아 고르게 한다. */
+    /**
+     * 영상 폴더·흔한 폴더에서 찾은 외부 자막 파일과, 컨테이너 안의 내장 자막 트랙을
+     * 한 목록에 같이 보여준다 (HANDOFF 1-① 참고). 사진이나 아직 트랙을 못 읽은
+     * 상태면 내장 쪽은 그냥 빈 목록이라 외부 파일만 남는다.
+     */
     private void pickSubtitle() {
         final List<File> found = new ArrayList<>();
         List<File> dirs = new ArrayList<>();
@@ -802,26 +840,80 @@ public class PlayerActivity extends Activity
             }
         }
 
-        final String[] items = new String[found.size() + 1];
-        items[0] = getString(R.string.sub_none);
-        for (int i = 0; i < found.size(); i++) items[i + 1] = found.get(i).getName();
+        final List<TrackInfo> embedded = engine == null
+                ? Collections.<TrackInfo>emptyList() : engine.textTracks();
 
-        if (found.isEmpty()) {
+        if (found.isEmpty() && embedded.isEmpty()) {
             Toast.makeText(this, R.string.sub_not_found, Toast.LENGTH_LONG).show();
             return;
+        }
+
+        final int extCount = found.size();
+        final String[] items = new String[1 + extCount + embedded.size()];
+        items[0] = getString(R.string.sub_none);
+        for (int i = 0; i < extCount; i++) items[1 + i] = found.get(i).getName();
+        for (int i = 0; i < embedded.size(); i++) {
+            TrackInfo t = embedded.get(i);
+            items[1 + extCount + i] = getString(R.string.sub_embedded_prefix, t.label)
+                    + (t.imageBased ? getString(R.string.sub_image_suffix) : "");
         }
 
         new AlertDialog.Builder(this)
                 .setTitle(R.string.btn_pick_subtitle)
                 .setItems(items, (d, which) -> {
                     if (which == 0) {
+                        selectedEmbeddedText = null;
                         subtitleTrack = null;
                         lastCueText = null;
                         glView.setSubtitleBitmap(null);
+                        if (engine != null) engine.selectTextTrack(null);
                         updateSubtitleName();
-                    } else {
+                    } else if (which <= extCount) {
+                        // 외부 파일을 고르면 내장 자막은 반드시 꺼야 한다 — 안 그러면
+                        // onEmbeddedCue 가 계속 들어와 외부 자막과 겹친다.
+                        selectedEmbeddedText = null;
+                        if (engine != null) engine.selectTextTrack(null);
                         loadSubtitle(found.get(which - 1));
+                    } else {
+                        TrackInfo t = embedded.get(which - 1 - extCount);
+                        if (t.imageBased) {
+                            Toast.makeText(PlayerActivity.this,
+                                    R.string.sub_image_unsupported, Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        subtitleTrack = null;
+                        lastCueText = null;
+                        glView.setSubtitleBitmap(null);
+                        selectedEmbeddedText = t;
+                        if (engine != null) engine.selectTextTrack(t);
+                        updateSubtitleName();
                     }
+                })
+                .show();
+    }
+
+    /** 컨테이너 안의 오디오 트랙을 고른다. 사진이나 트랙이 없으면 안내만 한다. */
+    private void pickAudioTrack() {
+        if (engine == null) return;
+        final List<TrackInfo> tracks = engine.audioTracks();
+        if (tracks.isEmpty()) {
+            Toast.makeText(this, R.string.audio_track_none, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        final String[] items = new String[tracks.size() + 1];
+        items[0] = getString(R.string.audio_track_default);
+        for (int i = 0; i < tracks.size(); i++) items[i + 1] = tracks.get(i).label;
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.btn_pick_audio)
+                .setItems(items, (d, which) -> {
+                    TrackInfo t = which == 0 ? null : tracks.get(which - 1);
+                    selectedAudioTrack = t;
+                    if (engine != null) engine.selectAudioTrack(t);
+                    Toast.makeText(PlayerActivity.this,
+                            getString(R.string.audio_track_selected, items[which]),
+                            Toast.LENGTH_SHORT).show();
                 })
                 .show();
     }
@@ -863,6 +955,11 @@ public class PlayerActivity extends Activity
         // 만들어지고 한 줄에 한두 글자씩 끊긴다 (코랄라인·스파이더맨에서 확인).
         int subW = glView.eyeWidthPx(), subH = glView.eyeHeightPx();
         if (subW <= 0 || subH <= 0) return;      // 아직 표면이 없다. 다음 틱에 다시.
+
+        // 내장 자막을 골랐으면 그건 onEmbeddedCue() 가 이벤트로 그린다.
+        // 여기서 같이 돌리면 subtitleTrack==null 인 cue=null 이 lastCueText 를
+        // 지워버려 방금 그린 내장 자막이 바로 사라진다.
+        if (selectedEmbeddedText != null) return;
 
         String cue = subtitleTrack == null ? null : subtitleTrack.textAt(pos);
         if (cue == null ? lastCueText != null : !cue.equals(lastCueText)) {
@@ -1424,6 +1521,27 @@ public class PlayerActivity extends Activity
             @Override public void run() {
                 Toast.makeText(PlayerActivity.this, getString(R.string.play_error, message),
                         Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    /**
+     * 내장 자막 트랙을 골랐을 때만 온다 (ExoEngine.open() 에서 텍스트 트랙을
+     * 기본으로 꺼 두었으므로). 외부 자막과 같은 비트맵 경로(SubtitleBitmap ->
+     * 좌/우 눈)를 그대로 타야 위빙 후에도 두 눈이 같은 글자를 본다.
+     */
+    @Override
+    public void onEmbeddedCue(final String text) {
+        ui.post(new Runnable() {
+            @Override public void run() {
+                if (selectedEmbeddedText == null) return;   // 그 사이 꺼졌으면 무시
+                if (text == null ? lastCueText != null : !text.equals(lastCueText)) {
+                    lastCueText = text;
+                    int subW = glView.eyeWidthPx(), subH = glView.eyeHeightPx();
+                    Bitmap bmp = (text == null || subW <= 0 || subH <= 0) ? null
+                            : SubtitleBitmap.render(text, subW, subH, subtitleScale);
+                    glView.setSubtitleBitmap(bmp);
+                }
             }
         });
     }

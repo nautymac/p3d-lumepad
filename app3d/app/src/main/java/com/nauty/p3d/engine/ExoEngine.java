@@ -10,14 +10,27 @@ import androidx.annotation.OptIn;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.TrackSelectionOverride;
+import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
+import androidx.media3.common.text.Cue;
+import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+
+import com.nauty.p3d.net.NetDataSourceFactory;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
 
 @OptIn(markerClass = UnstableApi.class)
 public class ExoEngine implements VideoEngine {
@@ -26,6 +39,9 @@ public class ExoEngine implements VideoEngine {
 
     private ExoPlayer player;
     private Listener listener;
+
+    private List<TrackInfo> audioTracks = Collections.emptyList();
+    private List<TrackInfo> textTracks  = Collections.emptyList();
 
     @Override
     public void open(Context ctx, Uri uri, Surface surface, SurfaceTexture st, Listener l) {
@@ -47,8 +63,23 @@ public class ExoEngine implements VideoEngine {
                 + (FfmpegLibrary.isAvailable()
                         ? "사용 가능 (" + FfmpegLibrary.getVersion() + ")" : "없음"));
 
-        player = new ExoPlayer.Builder(ctx, renderers).build();
+        // smb:// 는 NetDataSourceFactory 가 SmbDataSource 로 돌리고, 그 밖의 스킴(http/
+        // https/content/file, DLNA 가 주는 평범한 http URL 포함)은 그대로 기본 경로를 탄다
+        // (HANDOFF 1-② 참고).
+        DefaultMediaSourceFactory mediaSourceFactory =
+                new DefaultMediaSourceFactory(ctx).setDataSourceFactory(new NetDataSourceFactory(ctx));
+
+        player = new ExoPlayer.Builder(ctx, renderers)
+                .setMediaSourceFactory(mediaSourceFactory)
+                .build();
         player.setVideoSurface(surface);
+
+        // 내장 자막은 기본으로 꺼 둔다. 그래야 사용자가 트랙 선택기에서 직접 고른
+        // 경우에만 onCues 가 들어오고, 자동 선택된 트랙이 외부 .srt 와 겹치지 않는다.
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build());
+
         player.addListener(new Player.Listener() {
             @Override public void onVideoSizeChanged(VideoSize size) {
                 if (listener != null) listener.onVideoSize(size.width, size.height);
@@ -64,21 +95,55 @@ public class ExoEngine implements VideoEngine {
             @Override public void onTracksChanged(Tracks tracks) {
                 boolean audioPlayable = false;
                 StringBuilder sb = new StringBuilder();
+                List<TrackInfo> audio = new ArrayList<>();
+                List<TrackInfo> text  = new ArrayList<>();
+
                 for (Tracks.Group g : tracks.getGroups()) {
-                    if (g.getType() != C.TRACK_TYPE_AUDIO) continue;
+                    int type = g.getType();
+                    if (type != C.TRACK_TYPE_AUDIO && type != C.TRACK_TYPE_TEXT) continue;
+
                     for (int i = 0; i < g.length; i++) {
                         Format f = g.getTrackFormat(i);
                         boolean ok = g.isTrackSupported(i);
-                        if (ok) audioPlayable = true;
-                        sb.append("\n  ").append(f.sampleMimeType)
-                          .append(" ch=").append(f.channelCount)
-                          .append(ok ? "  [재생가능]" : "  [디코더 없음]");
+
+                        if (type == C.TRACK_TYPE_AUDIO) {
+                            if (ok) audioPlayable = true;
+                            sb.append("\n  ").append(f.sampleMimeType)
+                              .append(" ch=").append(f.channelCount)
+                              .append(ok ? "  [재생가능]" : "  [디코더 없음]");
+                            audio.add(new TrackInfo(g.getMediaTrackGroup(), i,
+                                    trackLabel(f, type), ok, false));
+                        } else {
+                            boolean image = isImageSubtitle(f.sampleMimeType);
+                            text.add(new TrackInfo(g.getMediaTrackGroup(), i,
+                                    trackLabel(f, type), ok, image));
+                        }
                     }
                 }
+                audioTracks = audio;
+                textTracks  = text;
+
                 Log.i(TAG, "ExoPlayer 오디오 트랙:" + (sb.length() == 0 ? " 없음" : sb));
                 if (!audioPlayable && sb.length() > 0 && listener != null) {
                     listener.onAudioUnsupported();
                 }
+            }
+
+            /**
+             * 사용자가 트랙 선택기에서 내장 자막을 고른 경우에만 여기로 온다
+             * (open() 에서 텍스트 트랙 타입을 기본으로 꺼 두었기 때문).
+             * 이미지 자막(PGS/VOBSUB/DVB)은 selectTextTrack() 호출 전에
+             * PlayerActivity 가 걸러서 아예 선택되지 않으므로, cue.text 만 보면 된다.
+             */
+            @Override public void onCues(CueGroup cueGroup) {
+                if (listener == null) return;
+                StringBuilder text = new StringBuilder();
+                for (Cue c : cueGroup.cues) {
+                    if (c.text == null) continue;
+                    if (text.length() > 0) text.append('\n');
+                    text.append(c.text);
+                }
+                listener.onEmbeddedCue(text.length() == 0 ? null : text.toString());
             }
         });
         player.setMediaItem(MediaItem.fromUri(uri));
@@ -104,4 +169,69 @@ public class ExoEngine implements VideoEngine {
     }
 
     @Override public Kind kind() { return Kind.EXO; }
+
+    // --------------------------------------------------------- 트랙 선택
+
+    @Override public List<TrackInfo> audioTracks() { return audioTracks; }
+    @Override public List<TrackInfo> textTracks()  { return textTracks; }
+
+    @Override
+    public void selectAudioTrack(TrackInfo track) {
+        if (player == null) return;
+        TrackSelectionParameters.Builder b = player.getTrackSelectionParameters().buildUpon();
+        b.clearOverridesOfType(C.TRACK_TYPE_AUDIO);
+        if (track != null) {
+            b.setOverrideForType(new TrackSelectionOverride(track.group, track.indexInGroup));
+        }
+        player.setTrackSelectionParameters(b.build());
+    }
+
+    @Override
+    public void selectTextTrack(TrackInfo track) {
+        if (player == null) return;
+        TrackSelectionParameters.Builder b = player.getTrackSelectionParameters().buildUpon();
+        b.clearOverridesOfType(C.TRACK_TYPE_TEXT);
+        if (track == null) {
+            b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
+        } else {
+            b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false);
+            b.setOverrideForType(new TrackSelectionOverride(track.group, track.indexInGroup));
+        }
+        player.setTrackSelectionParameters(b.build());
+    }
+
+    /** PGS/VOBSUB/DVB 자막은 이미지로 온다. 텍스트 자막용 경로로는 그릴 수 없다. */
+    private static boolean isImageSubtitle(String mimeType) {
+        return MimeTypes.APPLICATION_PGS.equals(mimeType)
+                || MimeTypes.APPLICATION_VOBSUB.equals(mimeType)
+                || MimeTypes.APPLICATION_DVBSUBS.equals(mimeType);
+    }
+
+    /** 트랙 선택기에 보일 이름. 이름 -> 언어 -> "오디오"/"자막" 순으로 고르고 코덱을 덧붙인다. */
+    private static String trackLabel(Format f, int type) {
+        StringBuilder sb = new StringBuilder();
+        if (f.label != null) {
+            sb.append(f.label);
+        } else if (f.language != null) {
+            sb.append(f.language.toUpperCase(Locale.US));
+        } else {
+            sb.append(type == C.TRACK_TYPE_AUDIO ? "Audio" : "Subtitle");
+        }
+        String codec = shortCodec(f.sampleMimeType);
+        if (codec != null) sb.append(" (").append(codec).append(")");
+        if (type == C.TRACK_TYPE_AUDIO && f.channelCount > 0) {
+            sb.append(" ").append(f.channelCount).append("ch");
+        }
+        return sb.toString();
+    }
+
+    /** "application/x-subrip" -> "SUBRIP" 처럼 마임타입 뒷부분만 대문자로. */
+    private static String shortCodec(String mimeType) {
+        if (mimeType == null) return null;
+        int slash = mimeType.lastIndexOf('/');
+        String tail = slash >= 0 ? mimeType.substring(slash + 1) : mimeType;
+        int dash = tail.lastIndexOf('-');
+        if (dash >= 0) tail = tail.substring(dash + 1);
+        return tail.toUpperCase(Locale.US);
+    }
 }

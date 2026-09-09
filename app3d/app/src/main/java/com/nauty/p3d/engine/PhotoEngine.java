@@ -161,4 +161,11 @@ public class PhotoEngine implements VideoEngine {
     }
 
     @Override public Kind kind() { return Kind.PHOTO; }
+
+    // ----- 사진에는 트랙이 없다.
+
+    @Override public java.util.List<TrackInfo> audioTracks() { return java.util.Collections.emptyList(); }
+    @Override public java.util.List<TrackInfo> textTracks()  { return java.util.Collections.emptyList(); }
+    @Override public void selectAudioTrack(TrackInfo track) { }
+    @Override public void selectTextTrack(TrackInfo track)  { }
 }

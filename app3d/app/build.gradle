@@ -22,6 +22,8 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+        // smbj 가 java.time 을 쓴다. minSdk 21 이라 데스슈가링이 있어야 링크된다.
+        coreLibraryDesugaringEnabled true
     }
 
     packaging {
@@ -56,7 +58,13 @@ dependencies {
     implementation 'androidx.media3:media3-exoplayer:1.3.1'
     implementation 'androidx.media3:media3-exoplayer-hls:1.3.1'
     implementation 'androidx.media3:media3-exoplayer-dash:1.3.1'
+    implementation 'androidx.media3:media3-datasource:1.3.1'
     implementation project(':ffmpeg')          // AC3/E-AC3/DTS/TrueHD 소프트웨어 디코딩
+
+    // SMB 재생 (HANDOFF 1-②). Apache-2.0 — 이 저장소의 MIT 와 함께 배포해도 된다.
+    // jcifs-ng 는 LGPL 이라 배포 조건이 달라 피했다.
+    implementation 'com.hierynomus:smbj:0.13.0'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 
     // Leia CNSDK — 기기의 com.moonlight.leia APK 에서 꺼낸다. 재배포할 수 없어서
     // 저장소에 넣지 않았다. 꺼내는 방법은 LUMEPAD2-PORT.md 참고.
