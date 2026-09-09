@@ -22,6 +22,9 @@
     <string name="yt_resolving">유튜브 링크 확인 중…</string>
     <string name="yt_failed">유튜브 링크 실패: %s</string>
     <string name="yt_pick_quality">화질 선택</string>
+    <string name="yt_load_subtitle">자막 불러오기</string>
+    <string name="yt_pick_caption">자막 언어 선택</string>
+    <string name="yt_marked_default">%s (기본값)</string>
     <string name="action_play">재생</string>
     <string name="action_cancel">취소</string>
     <string name="action_next">다음</string>

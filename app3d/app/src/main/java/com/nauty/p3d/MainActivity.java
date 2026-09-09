@@ -17,6 +17,7 @@ import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -32,6 +33,7 @@ import com.nauty.p3d.net.Ssdp;
 import com.nauty.p3d.net.YouTube;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -333,16 +335,35 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private static final String PREFS = "p3d";
+    private static final String KEY_YT_WANT_SUBTITLE = "yt_want_subtitle";
+    private static final String KEY_YT_CAPTION_LANG  = "yt_caption_lang";
+    private static final String KEY_YT_QUALITY       = "yt_quality";
+
     private void askUrl() {
         final EditText in = new EditText(this);
         in.setHint(R.string.url_hint);
+
+        final CheckBox subtitleCheck = new CheckBox(this);
+        subtitleCheck.setText(R.string.yt_load_subtitle);
+        subtitleCheck.setChecked(
+                getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_YT_WANT_SUBTITLE, true));
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.addView(in);
+        form.addView(subtitleCheck);
+
         new AlertDialog.Builder(this)
                 .setTitle(R.string.dlg_url_title)
-                .setView(in)
+                .setView(form)
                 .setPositiveButton(R.string.action_play, (d, w) -> {
                     String u = in.getText().toString().trim();
                     if (u.isEmpty()) return;
-                    if (YouTube.isYoutubeUrl(u)) openYoutube(u);
+                    boolean wantSubtitle = subtitleCheck.isChecked();
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putBoolean(KEY_YT_WANT_SUBTITLE, wantSubtitle).apply();
+                    if (YouTube.isYoutubeUrl(u)) openYoutube(u, wantSubtitle);
                     else open(Uri.parse(u), u);
                 })
                 .setNegativeButton(R.string.action_cancel, null)
@@ -356,14 +377,14 @@ public class MainActivity extends Activity {
      * 탄다 — 2D→3D 변환은 소스가 무엇이든 이미 똑같이 적용되므로 여기서 따로
      * 손댈 것이 없다.
      */
-    private void openYoutube(final String youtubeUrl) {
+    private void openYoutube(final String youtubeUrl, final boolean wantSubtitle) {
         Toast.makeText(this, R.string.yt_resolving, Toast.LENGTH_SHORT).show();
         new Thread(new Runnable() {
             @Override public void run() {
                 try {
                     final YouTube.Probe p = YouTube.probe(MainActivity.this, youtubeUrl);
                     runOnUiThread(new Runnable() {
-                        @Override public void run() { showYoutubeQualityPicker(p); }
+                        @Override public void run() { showYoutubeQualityPicker(p, wantSubtitle); }
                     });
                 } catch (final Exception e) {
                     runOnUiThread(new Runnable() {
@@ -378,15 +399,99 @@ public class MainActivity extends Activity {
         }, "yt-resolve").start();
     }
 
-    private void showYoutubeQualityPicker(final YouTube.Probe p) {
-        final String[] items = new String[p.qualities.size()];
-        for (int i = 0; i < items.length; i++) items[i] = p.qualities.get(i).label;
+    /**
+     * 전에 고른 화질이 있으면(한 번 고르면 다음부터 기본값이 된다) 맨 위로 올리고
+     * "(기본값)" 을 붙인다 — 캡션 선택과 같은 방식. 화질 자체는 영상마다 라벨이
+     * 달라서("1080p · 한국어" 처럼 언어가 붙기도 한다) 앞의 숫자(세로 해상도)만
+     * 뽑아 비교한다 — "자동" 은 숫자가 없으니 그 자체로 하나의 값이다.
+     */
+    private void showYoutubeQualityPicker(final YouTube.Probe p, final boolean wantSubtitle) {
+        String defaultKey = getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getString(KEY_YT_QUALITY, null);
+        final List<YouTube.Quality> qualities = new ArrayList<>(p.qualities);
+        if (defaultKey != null) {
+            for (int i = 0; i < qualities.size(); i++) {
+                if (defaultKey.equals(qualityKey(qualities.get(i)))) {
+                    Collections.swap(qualities, 0, i);
+                    break;
+                }
+            }
+        }
+
+        final String[] items = new String[qualities.size()];
+        for (int i = 0; i < items.length; i++) {
+            YouTube.Quality q = qualities.get(i);
+            items[i] = qualityKey(q).equals(defaultKey)
+                    ? getString(R.string.yt_marked_default, q.label) : q.label;
+        }
 
         new AlertDialog.Builder(this)
                 .setTitle(R.string.yt_pick_quality)
                 .setItems(items, (d, which) -> {
-                    YouTube.Quality q = p.qualities.get(which);
-                    open(Uri.parse(q.url), p.title);
+                    YouTube.Quality q = qualities.get(which);
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putString(KEY_YT_QUALITY, qualityKey(q)).apply();
+                    if (wantSubtitle && !p.captions.isEmpty()) {
+                        showYoutubeCaptionPicker(p, q);
+                    } else {
+                        open(q.playUri(), p.title, null);
+                    }
+                })
+                .show();
+    }
+
+    private static final java.util.regex.Pattern HEIGHT_PREFIX =
+            java.util.regex.Pattern.compile("^(\\d+)p");
+
+    private static String qualityKey(YouTube.Quality q) {
+        java.util.regex.Matcher m = HEIGHT_PREFIX.matcher(q.label);
+        return m.find() ? m.group(1) : "auto";
+    }
+
+    /**
+     * 화질을 고른 뒤 — 자막을 쓰기로 했고 고를 자막이 있을 때만 온다.
+     * 전에 고른 언어가 있으면(한 번 고르면 다음부터 기본값이 된다) 맨 위로 올리고
+     * "(기본값)" 을 붙여 보여준다 — 그래도 매번 확인·변경은 할 수 있게 목록은 그대로 둔다.
+     */
+    private void showYoutubeCaptionPicker(final YouTube.Probe p, final YouTube.Quality q) {
+        String defaultLang = getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getString(KEY_YT_CAPTION_LANG, null);
+        final List<YouTube.Caption> captions = new ArrayList<>(p.captions);
+        if (defaultLang != null) {
+            for (int i = 0; i < captions.size(); i++) {
+                if (defaultLang.equals(captions.get(i).code)) {
+                    Collections.swap(captions, 0, i);
+                    break;
+                }
+            }
+        }
+
+        final String[] items = new String[captions.size() + 1];
+        items[0] = getString(R.string.sub_none);
+        for (int i = 0; i < captions.size(); i++) {
+            YouTube.Caption c = captions.get(i);
+            items[i + 1] = c.code.equals(defaultLang)
+                    ? getString(R.string.yt_marked_default, c.label) : c.label;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.yt_pick_caption)
+                .setItems(items, (d, which) -> {
+                    if (which == 0) { open(q.playUri(), p.title, null); return; }
+                    final YouTube.Caption c = captions.get(which - 1);
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putString(KEY_YT_CAPTION_LANG, c.code).apply();
+                    Toast.makeText(this, R.string.yt_resolving, Toast.LENGTH_SHORT).show();
+                    new Thread(new Runnable() {
+                        @Override public void run() {
+                            final java.io.File f = YouTube.downloadCaption(MainActivity.this, c);
+                            runOnUiThread(new Runnable() {
+                                @Override public void run() {
+                                    open(q.playUri(), p.title, f != null ? f.getAbsolutePath() : null);
+                                }
+                            });
+                        }
+                    }, "yt-caption").start();
                 })
                 .show();
     }
@@ -732,10 +837,13 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private void open(Uri uri, String title) {
+    private void open(Uri uri, String title) { open(uri, title, null); }
+
+    private void open(Uri uri, String title, String subtitlePath) {
         Intent i = new Intent(this, PlayerActivity.class);
         i.setData(uri);
         i.putExtra(PlayerActivity.EXTRA_TITLE, title);
+        if (subtitlePath != null) i.putExtra(PlayerActivity.EXTRA_SUBTITLE_PATH, subtitlePath);
         if (kind == MediaLibrary.Kind.IMAGE) {
             i.putExtra(PlayerActivity.EXTRA_PHOTO, true);
             // 이전/다음은 지금 보고 있는 폴더 안에서만 돈다.

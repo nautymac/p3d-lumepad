@@ -24,6 +24,9 @@
     <string name="yt_resolving">Resolving YouTube link…</string>
     <string name="yt_failed">YouTube link failed: %s</string>
     <string name="yt_pick_quality">Choose quality</string>
+    <string name="yt_load_subtitle">Load subtitles</string>
+    <string name="yt_pick_caption">Choose subtitle language</string>
+    <string name="yt_marked_default">%s (default)</string>
     <string name="action_play">Play</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_next">Next</string>

@@ -24,6 +24,8 @@ import androidx.media3.decoder.ffmpeg.FfmpegLibrary;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.MergingMediaSource;
 
 import com.nauty.p3d.net.NetDataSourceFactory;
 
@@ -146,7 +148,19 @@ public class ExoEngine implements VideoEngine {
                 listener.onEmbeddedCue(text.length() == 0 ? null : text.toString());
             }
         });
-        player.setMediaItem(MediaItem.fromUri(uri));
+
+        // 유튜브의 화질별 트랙은 요즘 영상·오디오가 따로 나뉘어 있는 경우가 흔하다
+        // (YouTube.java 주석 참고). "merge://" 는 그 둘을 각각 열어 하나로 합치라는
+        // 표시다 — v/a 쿼리 파라미터에 실제 영상/오디오 주소가 들어 있다.
+        if ("merge".equals(uri.getScheme())) {
+            MediaSource videoSource = mediaSourceFactory.createMediaSource(
+                    MediaItem.fromUri(Uri.parse(uri.getQueryParameter("v"))));
+            MediaSource audioSource = mediaSourceFactory.createMediaSource(
+                    MediaItem.fromUri(Uri.parse(uri.getQueryParameter("a"))));
+            player.setMediaSource(new MergingMediaSource(videoSource, audioSource));
+        } else {
+            player.setMediaItem(MediaItem.fromUri(uri));
+        }
         player.prepare();
     }
 

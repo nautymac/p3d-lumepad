@@ -61,6 +61,8 @@ public class PlayerActivity extends Activity
      * 도는 건 뜻이 없다 — 지금 보고 있던 묶음 안에서 넘기는 것이 자연스럽다.
      */
     public static final String EXTRA_FOLDER = "folder";
+    /** 유튜브 링크에서 미리 내려받아 둔 자막(.srt) 파일 경로. MainActivity.openYoutube() 참고. */
+    public static final String EXTRA_SUBTITLE_PATH = "subtitle_path";
 
     private static final String TAG        = "P3D";
     private static final String PREFS      = "p3d";
@@ -789,6 +791,8 @@ public class PlayerActivity extends Activity
     }
 
     private void autoLoadSubtitle() {
+        String ytSub = getIntent().getStringExtra(EXTRA_SUBTITLE_PATH);
+        if (ytSub != null) { loadSubtitle(new File(ytSub)); return; }
         File sub = Subtitles.findSibling(videoFile);
         if (sub != null) loadSubtitle(sub);
         else updateSubtitleName();
