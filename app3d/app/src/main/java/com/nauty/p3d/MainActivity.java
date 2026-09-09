@@ -29,6 +29,7 @@ import com.nauty.p3d.net.SmbCredentials;
 import com.nauty.p3d.net.SmbDiscovery;
 import com.nauty.p3d.net.SmbUri;
 import com.nauty.p3d.net.Ssdp;
+import com.nauty.p3d.net.YouTube;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -340,9 +341,53 @@ public class MainActivity extends Activity {
                 .setView(in)
                 .setPositiveButton(R.string.action_play, (d, w) -> {
                     String u = in.getText().toString().trim();
-                    if (!u.isEmpty()) open(Uri.parse(u), u);
+                    if (u.isEmpty()) return;
+                    if (YouTube.isYoutubeUrl(u)) openYoutube(u);
+                    else open(Uri.parse(u), u);
                 })
                 .setNegativeButton(R.string.action_cancel, null)
+                .show();
+    }
+
+    /**
+     * 유튜브 링크(실시간 방송 포함)는 바로 열 수 없다 — yt-dlp 로 화질별 스트림 주소를
+     * 뽑아낸 뒤 하나를 고르게 하고 나서야 ExoPlayer 가 연다. 조회가 몇 초 걸릴 수
+     * 있어 배경 스레드에서 돌린다. 화질을 고르면 평소 재생 경로(open())를 그대로
+     * 탄다 — 2D→3D 변환은 소스가 무엇이든 이미 똑같이 적용되므로 여기서 따로
+     * 손댈 것이 없다.
+     */
+    private void openYoutube(final String youtubeUrl) {
+        Toast.makeText(this, R.string.yt_resolving, Toast.LENGTH_SHORT).show();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    final YouTube.Probe p = YouTube.probe(MainActivity.this, youtubeUrl);
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { showYoutubeQualityPicker(p); }
+                    });
+                } catch (final Exception e) {
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            Toast.makeText(MainActivity.this,
+                                    getString(R.string.yt_failed, e.getMessage()),
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }, "yt-resolve").start();
+    }
+
+    private void showYoutubeQualityPicker(final YouTube.Probe p) {
+        final String[] items = new String[p.qualities.size()];
+        for (int i = 0; i < items.length; i++) items[i] = p.qualities.get(i).label;
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.yt_pick_quality)
+                .setItems(items, (d, which) -> {
+                    YouTube.Quality q = p.qualities.get(which);
+                    open(Uri.parse(q.url), p.title);
+                })
                 .show();
     }
 

@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId "com.nauty.p3d"
-        minSdk 21
+        minSdk 24             // youtubedl-android 요구치 (실기는 훨씬 위라 문제 없다)
         targetSdk 28          // 기기가 API 26 — 레거시 저장소 접근 유지
         versionCode 2
         versionName "1.1"
@@ -78,6 +78,14 @@ dependencies {
     // DCE/RPC). smbj 는 이 RPC 계층이 없어서 따로 붙인다. BSD-3-Clause.
     implementation 'com.rapid7.client:dcerpc:0.12.13'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+
+    // 유튜브(실시간 포함) 링크 재생. 파이썬 3.8 + yt-dlp 실행 파일을 통째로 안드로이드
+    // 네이티브 라이브러리로 안고 있는 라이브러리다 — 서버 없이 기기 안에서 바로
+    // 스트림 주소를 뽑는다. ffmpeg 모듈(별도 아티팩트, 위의 project(':ffmpeg') 와는
+    // 다른 것)은 뺐다 — 우리는 --dump-json 으로 정보만 뽑을 뿐 합치기/후처리를
+    // 안 시키므로 없어도 된다. 있으면 APK 가 35MB 이상 커진다(실측).
+    // Unlicense — 배포 조건 문제없다. minSdk 24 를 요구해 위에서 올렸다.
+    implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
 
     // Leia CNSDK — 기기의 com.moonlight.leia APK 에서 꺼낸다. 재배포할 수 없어서
     // 저장소에 넣지 않았다. 꺼내는 방법은 LUMEPAD2-PORT.md 참고.

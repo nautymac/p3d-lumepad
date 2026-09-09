@@ -6,6 +6,7 @@ import android.net.Uri;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultDataSource;
+import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.TransferListener;
 
 import java.io.IOException;
@@ -17,8 +18,10 @@ import java.util.Map;
  * {@code smb://} 는 {@link SmbDataSource} 로, 그 밖의 스킴(http/https/content/file 등)은
  * 기존 {@link DefaultDataSource} 로 보낸다.
  *
- * DLNA 는 결국 평범한 http URL 을 주므로 재생 엔진은 손댈 것이 없다 — 여기서 새로
- * 얹은 것은 SMB 뿐이다 (HANDOFF 1-② 참고).
+ * DLNA 는 결국 평범한 http URL 을 주므로 재생 엔진은 손댈 것이 없다 — SMB 에 이어
+ * 얹은 것은 유튜브(YouTube.java)가 요구하는 요청 헤더뿐이다: 그 호스트로 가는
+ * http(s) 요청에는 {@link StreamHeaders} 에 등록된 헤더를 실어 보낸다. HLS 는
+ * 재생목록·조각이 같은 호스트로 여러 번 요청되므로 헤더도 호스트 단위로 적용된다.
  */
 public final class NetDataSourceFactory implements DataSource.Factory {
 
@@ -49,7 +52,15 @@ public final class NetDataSourceFactory implements DataSource.Factory {
 
         @Override
         public long open(DataSpec spec) throws IOException {
-            active = "smb".equals(spec.uri.getScheme()) ? new SmbDataSource(ctx) : httpDelegate;
+            if ("smb".equals(spec.uri.getScheme())) {
+                active = new SmbDataSource(ctx);
+            } else {
+                Map<String, String> headers = StreamHeaders.get(spec.uri.getHost());
+                active = headers == null ? httpDelegate
+                        : new DefaultHttpDataSource.Factory()
+                                .setDefaultRequestProperties(headers)
+                                .createDataSource();
+            }
             return active.open(spec);
         }
 
