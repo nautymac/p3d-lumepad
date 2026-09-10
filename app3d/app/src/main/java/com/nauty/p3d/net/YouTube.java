@@ -52,6 +52,7 @@ import java.util.TreeMap;
 public final class YouTube {
 
     private static volatile boolean initialized = false;
+    private static volatile Context appContext;
 
     public static boolean isYoutubeUrl(String url) {
         if (url == null) return false;
@@ -69,6 +70,7 @@ public final class YouTube {
      * 번들 버전으로 계속 시도할 수 있게 무시한다.
      */
     private static synchronized void ensureInit(Context ctx) throws Exception {
+        appContext = ctx.getApplicationContext();
         if (initialized) return;
         YoutubeDL.getInstance().init(ctx.getApplicationContext());
         try {
@@ -275,14 +277,30 @@ public final class YouTube {
         return note != null && note.matches("\\d+p");
     }
 
-    /** 낮을수록 우선. av01(AV1) 이 1순위, vp9/vp09 가 2순위, avc1(H.264) 이 3순위. */
+    /**
+     * 낮을수록 우선. av01(AV1) 이 1순위, vp9/vp09 가 2순위, avc1(H.264) 이 3순위 —
+     * 단 AV1 은 기기가 실제로 감당할 수 있을 때만이다. ProMa(P10)는 AV1 디코더가
+     * 아예 없다(실기 dumpsys media_codecs 로 확인) — AV1을 최우선으로 두면 그
+     * 기기에서 재생이 안 된다. 기기마다 다른 값이라 R.bool.supports_av1_decode
+     * 리소스로 뺐다(자바 코드는 두 프로젝트가 그대로 복사해 쓰므로).
+     */
     private static int codecPriority(JsonNode f) {
         String v = text(f, "vcodec");
         if (v == null) return 3;
-        if (v.startsWith("av01")) return 0;
+        if (v.startsWith("av01")) return supportsAv1Decode() ? 0 : 3;
         if (v.startsWith("vp9") || v.startsWith("vp09")) return 1;
         if (v.startsWith("avc1")) return 2;
         return 3;
+    }
+
+    private static boolean supportsAv1Decode() {
+        Context ctx = appContext;
+        if (ctx == null) return false; // 확실치 않으면 안전하게 AV1을 피한다
+        try {
+            return ctx.getResources().getBoolean(com.nauty.p3d.R.bool.supports_av1_decode);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**

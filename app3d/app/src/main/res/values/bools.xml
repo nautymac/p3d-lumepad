@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 기기별 하드웨어 특성. YouTube.java 는 두 프로젝트가 파일을 그대로 복사해
+         공유하므로(cp로 동기화), 기기마다 다른 값은 자바 코드가 아니라 여기
+         리소스에 둔다 — 코드 동기화 때 값이 덮어써지지 않는다. -->
+    <bool name="supports_av1_decode">true</bool>
+</resources>
