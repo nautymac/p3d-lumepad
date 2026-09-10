@@ -25,6 +25,7 @@
     <string name="yt_load_subtitle">자막 불러오기</string>
     <string name="yt_pick_caption">자막 언어 선택</string>
     <string name="yt_marked_default">%s (기본값)</string>
+    <string name="yt_caption_failed">선택한 자막을 가져오지 못해 자막 없이 재생합니다. (유튜브가 자동 번역 자막 요청을 막을 때가 있습니다.)</string>
     <string name="action_play">재생</string>
     <string name="action_cancel">취소</string>
     <string name="action_next">다음</string>

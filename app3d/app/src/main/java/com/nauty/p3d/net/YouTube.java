@@ -444,31 +444,42 @@ public final class YouTube {
      * 고른 자막 하나를 내려받아 .srt 파일로 저장한다. 실패하면 null — 호출한 쪽이
      * 계속 재생하되 자막만 없이 진행하면 된다.
      *
-     * WebVTT 는 타임스탬프에 "."을 쓰는데 Subtitles.parseSrt() 의 정규식이 ","와
-     * "." 을 이미 다 받아들이고, 안 쓰는 줄(WEBVTT 헤더, 큐 식별자, style 블록)은
-     * 타임스탬프가 아니라서 자연히 건너뛰므로 형식 변환 없이 그대로 .srt 로
-     * 저장해도 파싱된다.
+     * 기기 언어 자동 생성 자막이 원본 음성 언어와 다르면, 유튜브는 그 자리에서
+     * 번역을 거친(tlang) 자막만 내려준다 — 원본 언어 그대로의 자동 생성 자막과
+     * 달리 이 번역 경로는 익명 요청을 429(Too Many Requests)로 거의 항상 막는다
+     * (실기로 확인했다 — 헤더를 브라우저처럼 꾸미거나 시간을 두고 다시 요청해도
+     * 그대로 막히고, yt-dlp 본체로 직접 받아도 똑같이 막힌다. 유튜브 쪽에서
+     * 이 번역 경로에만 별도 인증을 요구하는 것으로 보인다). 그래서 재시도는 한
+     * 번만 짧게 두고, 그래도 안 되면 호출한 쪽이 사용자에게 알리게 null 을
+     * 돌려준다 — 이 앱이 고칠 수 있는 문제가 아니다.
      */
     public static File downloadCaption(Context ctx, Caption c) {
-        try {
-            String text = httpGet(c.url);
-            if (text == null || text.trim().isEmpty()) return null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                String text = httpGet(c.url);
+                if (text == null || text.trim().isEmpty()) return null;
 
-            File f = File.createTempFile("yt_sub_", ".srt", ctx.getCacheDir());
-            try (OutputStreamWriter w = new OutputStreamWriter(
-                    new FileOutputStream(f), StandardCharsets.UTF_8)) {
-                w.write(text);
+                File f = File.createTempFile("yt_sub_", ".srt", ctx.getCacheDir());
+                try (OutputStreamWriter w = new OutputStreamWriter(
+                        new FileOutputStream(f), StandardCharsets.UTF_8)) {
+                    w.write(text);
+                }
+                return f;
+            } catch (Exception e) {
+                if (attempt == 0) {
+                    try { Thread.sleep(1500); } catch (InterruptedException ignored) { }
+                }
             }
-            return f;
-        } catch (Exception e) {
-            return null;
         }
+        return null;
     }
 
     private static String httpGet(String urlStr) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(urlStr).openConnection();
         c.setConnectTimeout(10_000);
         c.setReadTimeout(10_000);
+        c.setRequestProperty("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
         try {
             StringBuilder sb = new StringBuilder();
             try (BufferedReader r = new BufferedReader(

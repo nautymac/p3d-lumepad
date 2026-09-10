@@ -525,6 +525,10 @@ public class MainActivity extends Activity {
                             final java.io.File f = YouTube.downloadCaption(MainActivity.this, c);
                             runOnUiThread(new Runnable() {
                                 @Override public void run() {
+                                    if (f == null) {
+                                        Toast.makeText(MainActivity.this, R.string.yt_caption_failed,
+                                                Toast.LENGTH_LONG).show();
+                                    }
                                     open(q.playUri(), p.title, f != null ? f.getAbsolutePath() : null);
                                 }
                             });

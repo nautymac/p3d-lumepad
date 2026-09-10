@@ -27,6 +27,7 @@
     <string name="yt_load_subtitle">Load subtitles</string>
     <string name="yt_pick_caption">Choose subtitle language</string>
     <string name="yt_marked_default">%s (default)</string>
+    <string name="yt_caption_failed">Couldn\'t fetch that subtitle — playing without it. (YouTube sometimes blocks auto-translated subtitles.)</string>
     <string name="action_play">Play</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_next">Next</string>
