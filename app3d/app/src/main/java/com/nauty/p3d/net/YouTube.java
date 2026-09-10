@@ -164,15 +164,13 @@ public final class YouTube {
                 boolean hasAudio = !isNone(text(f, "acodec"));
                 int height = f.path("height").asInt(0);
 
-                // HLS/DASH 매니페스트(m3u8 등)는 그 안에 이미 필요한 트랙이 다 있다 —
-                // acodec 표기가 부정확해 "영상 전용"으로 잘못 걸리면, 관계없는 오디오
-                // 전용 파일과 억지로 합쳐져 재생이 깨진다(실기에서 DVR 방송 다시보기로
-                // 겪었다). 매니페스트면 acodec 표기와 무관하게 무조건 완결된 트랙으로 본다.
-                boolean isManifest = text(f, "manifest_url") != null
-                        || "m3u8_native".equals(text(f, "protocol"))
-                        || "m3u8".equals(text(f, "protocol"));
-
-                if ((hasVideo && hasAudio || isManifest && hasVideo) && height > 0) {
+                // acodec/vcodec 표기를 그대로 믿는다. HLS 재생목록(m3u8) 이라고
+                // 무조건 완결된 트랙으로 봤더니, 실시간/DVR 방송은 HLS 안에서도
+                // 영상·오디오가 나뉘어("demuxed") 오는 경우가 있어서(실기에서
+                // 확인했다) 관계없는 오디오 파일과 잘못 합쳐지거나, 화질 이름이
+                // 실제 픽셀 높이로 잘못 나오는 원인이 됐다. acodec 이 "none" 이면
+                // (protocol 이 뭐든) 그냥 영상 전용으로 보고 오디오를 따로 짝짓는다.
+                if (hasVideo && hasAudio && height > 0) {
                     keepBest(combinedByHeight, height, f);
                 } else if (hasVideo && height > 0) {
                     keepBest(videoOnlyByHeight, height, f);
@@ -203,7 +201,7 @@ public final class YouTube {
 
         for (Map.Entry<Integer, JsonNode> e : combinedByHeight.entrySet()) {
             JsonNode f = e.getValue();
-            Quality q = new Quality(e.getKey() + "p", text(f, "url"), null);
+            Quality q = new Quality(qualityLabel(f, e.getKey()), text(f, "url"), null);
             defaultByHeight.put(e.getKey(), q);
             registerHeaders(text(f, "url"), headersOf(f, root));
         }
@@ -213,10 +211,21 @@ public final class YouTube {
             // 아예 올리지 않는다. 기기 언어를 기본값으로 삼아본 적이 있는데,
             // 유튜브의 AI 자동 더빙이 마침 기기 언어와 겹치면 그게 기본으로
             // 깔려 버려서 더 나빴다 — 사용자가 원한 건 "내 언어" 가 아니라
-            // "더빙 안 된 원본" 이었다. LinkedHashMap 이 보존하는 원래 순서
-            // (유튜브가 나열하는 순서 — 원본이 먼저, 더빙이 뒤에 붙는다)에서
-            // 첫 번째만 쓴다.
-            JsonNode audio = audioByLang.values().iterator().next();
+            // "더빙 안 된 원본" 이었다. 처음엔 "유튜브가 나열하는 순서에서 원본이
+            // 먼저 온다"고 가정해 첫 번째를 썼는데, 실기에서 자동 더빙(en-US)이
+            // 원본(ko)보다 먼저 나열되는 영상을 만나 틀렸다는 게 드러났다.
+            // yt-dlp 가 주는 language_preference 로 판단한다 — 원본/기본 트랙은
+            // 10, 자동 더빙은 -1 이다(실측으로 확인했다). 이 값이 없는 경우를
+            // 대비해 동률이면 나열 순서(먼저 나온 쪽)를 그대로 쓴다.
+            JsonNode audio = null;
+            int bestPref = Integer.MIN_VALUE;
+            for (JsonNode a : audioByLang.values()) {
+                int pref = a.path("language_preference").asInt(0);
+                if (audio == null || pref > bestPref) {
+                    audio = a;
+                    bestPref = pref;
+                }
+            }
             String audioUrl = text(audio, "url");
             registerHeaders(audioUrl, headersOf(audio, root));
 
@@ -226,7 +235,7 @@ public final class YouTube {
                 JsonNode f = e.getValue();
                 String videoUrl = text(f, "url");
                 registerHeaders(videoUrl, headersOf(f, root));
-                defaultByHeight.put(height, new Quality(height + "p", videoUrl, audioUrl));
+                defaultByHeight.put(height, new Quality(qualityLabel(f, height), videoUrl, audioUrl));
             }
         }
 
@@ -241,7 +250,50 @@ public final class YouTube {
 
     private static void keepBest(TreeMap<Integer, JsonNode> byHeight, int height, JsonNode f) {
         JsonNode cur = byHeight.get(height);
-        if (cur == null || bitrate(f) > bitrate(cur)) byHeight.put(height, f);
+        if (cur == null || isBetter(f, cur)) byHeight.put(height, f);
+    }
+
+    /**
+     * 같은 높이에 후보가 여럿이면(코덱별로 av01/vp9/avc1 등 나뉜다) 순서대로 본다:
+     * 1) format_note(화질 등급 이름)가 없는 실험적 인코딩은 뒤로 — 없는 쪽이
+     *    뽑히면 qualityLabel() 이 등급 이름 대신 실제 픽셀 높이를 보여주게 된다
+     *    (실기에서 "800p" 로 잘못 나오는 걸 겪었다).
+     * 2) 코덱 우선순위 AV1 > VP9 > AVC1(H.264) — 같은 비트레이트라도 AV1/VP9 가
+     *    더 낫게 압축돼 화질이 좋다.
+     * 3) 그래도 같으면 비트레이트가 높은 쪽.
+     */
+    private static boolean isBetter(JsonNode f, JsonNode cur) {
+        boolean fNoted = hasQualityNote(f), curNoted = hasQualityNote(cur);
+        if (fNoted != curNoted) return fNoted;
+        int fp = codecPriority(f), cp = codecPriority(cur);
+        if (fp != cp) return fp < cp;
+        return bitrate(f) > bitrate(cur);
+    }
+
+    private static boolean hasQualityNote(JsonNode f) {
+        String note = text(f, "format_note");
+        return note != null && note.matches("\\d+p");
+    }
+
+    /** 낮을수록 우선. av01(AV1) 이 1순위, vp9/vp09 가 2순위, avc1(H.264) 이 3순위. */
+    private static int codecPriority(JsonNode f) {
+        String v = text(f, "vcodec");
+        if (v == null) return 3;
+        if (v.startsWith("av01")) return 0;
+        if (v.startsWith("vp9") || v.startsWith("vp09")) return 1;
+        if (v.startsWith("avc1")) return 2;
+        return 3;
+    }
+
+    /**
+     * 화질 이름은 실제 세로 픽셀 수가 아니라 유튜브가 쓰는 화질 등급 이름을
+     * 보여줘야 한다. 시네마스코프 등 16:9 가 아닌 영상은 "1080p" 등급이어도
+     * 실제 세로 픽셀은 800 처럼 다르다(실기에서 "800p" 로 잘못 나오는 걸
+     * 겪었다) — yt-dlp 가 format_note 에 그 등급 이름을 그대로 담아 준다.
+     */
+    private static String qualityLabel(JsonNode f, int height) {
+        String note = text(f, "format_note");
+        return (note != null && note.matches("\\d+p")) ? note : height + "p";
     }
 
     private static double bitrate(JsonNode f) {
