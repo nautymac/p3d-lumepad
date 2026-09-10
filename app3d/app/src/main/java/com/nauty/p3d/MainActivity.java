@@ -374,6 +374,13 @@ public class MainActivity extends Activity {
         // 그대로 띄워서, 주소를 치는데 한글 자모가 찍히는 일이 실제로 있었다.
         in.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        // TYPE_TEXT_VARIATION_URI 는 자동완성/대문자화만 바꾸지, 키보드가 띄우는
+        // 언어(한글 등)는 안 바뀐다 — Gboard 가 최근에 쓴 언어를 그대로 기억해서
+        // 계속 한글로 뜬다는 사용자 보고가 있었다. 이 입력칸만 영어를 쓰라고
+        // 명시적으로 힌트를 준다(Gboard 가 이 힌트를 따른다).
+        if (android.os.Build.VERSION.SDK_INT >= 24) {
+            in.setImeHintLocales(android.os.LocaleList.forLanguageTags("en"));
+        }
 
         final CheckBox subtitleCheck = new CheckBox(this);
         subtitleCheck.setText(R.string.yt_load_subtitle);

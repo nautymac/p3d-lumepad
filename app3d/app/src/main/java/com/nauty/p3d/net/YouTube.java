@@ -44,8 +44,10 @@ import java.util.TreeMap;
  * 짝지은 화질은 Quality.audioUrl 에 오디오 주소가 따로 담기고, ExoEngine 이
  * "merge://" 스킴을 보고 두 소스를 합쳐서 연다.
  *
- * 더빙된 영상처럼 오디오 언어가 여러 개면 화질 목록에 언어를 같이 표기해
- * 고를 수 있게 한다 — 언어가 하나뿐이면(대부분의 경우) 평소와 똑같다.
+ * 오디오는 원본 언어 하나만 쓴다(더빙된 영상이면 여러 언어가 있는데, 유튜브의
+ * AI 자동 더빙이 섞여 있어 기기 언어를 기본으로 삼아도 오히려 엉뚱한 가짜
+ * 더빙이 걸릴 수 있었다 — 실기에서 겪었다). 유튜브가 나열하는 순서(대체로
+ * 원본이 먼저)에서 첫 번째 언어만 쓴다.
  */
 public final class YouTube {
 
@@ -175,15 +177,28 @@ public final class YouTube {
                 } else if (hasVideo && height > 0) {
                     keepBest(videoOnlyByHeight, height, f);
                 } else if (hasAudio) {
+                    // 지역/변형 접미사를 뗀 기본 태그로 묶는다("ko-orig", "ko-KR" 은
+                    // 전부 "ko") — listCaptions() 와 같은 이유다: 더빙 아닌 영상도
+                    // 같은 언어가 "ko" 와 "ko-orig" 로 두 번 잡혀 화질 목록이
+                    // "· 한국어" 붙은 채로 통째로 중복되는 걸 실기에서 겪었다.
                     String lang = text(f, "language");
-                    String key = lang == null ? "" : lang;
+                    String key = lang == null ? "" : lang.split("-")[0].toLowerCase(Locale.US);
                     JsonNode cur = audioByLang.get(key);
                     if (cur == null || bitrate(f) > bitrate(cur)) audioByLang.put(key, f);
                 }
             }
         }
 
-        List<Quality> out = new ArrayList<>();
+        // 언어 태그가 없는("") 트랙과 실제 태그(예: "ko")가 딱 하나 더 있으면, 서로
+        // 다른 더빙이 아니라 같은 원본을 태그 유무만 다르게 두 번 올려놓은 것이다 —
+        // 그대로 두면 진짜 더빙도 아닌데 화질마다 "· 한국어" 가 중복으로 붙고, 라벨
+        // 없는 중복 항목까지 생겨 목록이 두 배로 늘어난다. 태그 있는 쪽만 남긴다.
+        if (audioByLang.size() > 1 && audioByLang.containsKey("")) {
+            int tagged = 0;
+            for (String k : audioByLang.keySet()) if (!k.isEmpty()) tagged++;
+            if (tagged == 1) audioByLang.remove("");
+        }
+
         TreeMap<Integer, Quality> defaultByHeight = new TreeMap<>(Collections.<Integer>reverseOrder());
 
         for (Map.Entry<Integer, JsonNode> e : combinedByHeight.entrySet()) {
@@ -194,26 +209,24 @@ public final class YouTube {
         }
 
         if (!audioByLang.isEmpty()) {
-            boolean multiLang = audioByLang.size() > 1;
-            boolean first = true;
-            for (Map.Entry<String, JsonNode> langEntry : audioByLang.entrySet()) {
-                JsonNode audio = langEntry.getValue();
-                String audioUrl = text(audio, "url");
-                registerHeaders(audioUrl, headersOf(audio, root));
-                String langName = multiLang ? languageName(langEntry.getKey()) : null;
+            // 원본 오디오만 지원한다 — 더빙(유튜브 자동 더빙 포함)은 화질 목록에
+            // 아예 올리지 않는다. 기기 언어를 기본값으로 삼아본 적이 있는데,
+            // 유튜브의 AI 자동 더빙이 마침 기기 언어와 겹치면 그게 기본으로
+            // 깔려 버려서 더 나빴다 — 사용자가 원한 건 "내 언어" 가 아니라
+            // "더빙 안 된 원본" 이었다. LinkedHashMap 이 보존하는 원래 순서
+            // (유튜브가 나열하는 순서 — 원본이 먼저, 더빙이 뒤에 붙는다)에서
+            // 첫 번째만 쓴다.
+            JsonNode audio = audioByLang.values().iterator().next();
+            String audioUrl = text(audio, "url");
+            registerHeaders(audioUrl, headersOf(audio, root));
 
-                for (Map.Entry<Integer, JsonNode> e : videoOnlyByHeight.entrySet()) {
-                    int height = e.getKey();
-                    if (first && defaultByHeight.containsKey(height)) continue; // 이미 합쳐진 트랙이 있다
-                    JsonNode f = e.getValue();
-                    String videoUrl = text(f, "url");
-                    registerHeaders(videoUrl, headersOf(f, root));
-                    String label = langName == null ? height + "p" : height + "p · " + langName;
-                    Quality q = new Quality(label, videoUrl, audioUrl);
-                    if (first) defaultByHeight.put(height, q);
-                    else out.add(q);   // 다른 언어는 "자동" 계산에 넣지 않고 목록에만 추가
-                }
-                first = false;
+            for (Map.Entry<Integer, JsonNode> e : videoOnlyByHeight.entrySet()) {
+                int height = e.getKey();
+                if (defaultByHeight.containsKey(height)) continue; // 이미 합쳐진 트랙이 있다
+                JsonNode f = e.getValue();
+                String videoUrl = text(f, "url");
+                registerHeaders(videoUrl, headersOf(f, root));
+                defaultByHeight.put(height, new Quality(height + "p", videoUrl, audioUrl));
             }
         }
 
@@ -223,7 +236,6 @@ public final class YouTube {
             all.add(new Quality("자동 (최고화질)", top.url, top.audioUrl));
         }
         all.addAll(defaultByHeight.values());
-        all.addAll(out);
         return all;
     }
 
